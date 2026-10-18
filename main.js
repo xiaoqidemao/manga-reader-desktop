@@ -113,6 +113,31 @@ function settingsPath() {
 }
 
 /* ------------------------------------------------------------
+   图片 → dataURL（兜底路径）
+   ------------------------------------------------------------
+   主进程的 nativeImage 只认 PNG / JPEG / BMP，
+   实测 webp 和 gif 都会返回空图像。
+   遇到这种情况，直接把文件原始字节包成 dataURL 返回，
+   由渲染进程（Chromium）负责解码，那里什么格式都认。
+   ------------------------------------------------------------ */
+const IMG_MIME = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jfif': 'image/jpeg',
+  '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
+  '.bmp': 'image/bmp', '.avif': 'image/avif',
+};
+
+async function rawImageDataUrl(filePath) {
+  try {
+    const buf = await fsp.readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mime = IMG_MIME[ext] || 'application/octet-stream';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------
    书架缓存：books.json
    ------------------------------------------------------------
    启动时不再扫描目录树，直接读这份缓存渲染书架。
@@ -887,7 +912,13 @@ function setupIPC() {
       // 两道都留着是因为 Windows 上 toDataURL 的 quality 参数
       // 在部分图片格式下会被忽略，单靠一道不可靠。
       const img = nativeImage.createFromPath(coverPath);
-      if (img.isEmpty()) return null;
+      if (img.isEmpty()) {
+        /* nativeImage 认不出 webp / gif（实测这两类都返回空）。
+           这时不要放弃，直接把原始字节转成 dataURL 交给渲染进程——
+           浏览器内核（Chromium）什么格式都能解码，
+           渲染进程那边本来就有 canvas 缩小逻辑兜着。 */
+        return await rawImageDataUrl(coverPath);
+      }
 
       const size = img.getSize();
       const targetW = 360;

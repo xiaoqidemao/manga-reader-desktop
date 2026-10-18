@@ -1,0 +1,74 @@
+{
+  "name": "manga-reader-desktop",
+  "productName": "漫画阅读器",
+  "version": "1.0.0",
+  "description": "本地漫画阅读器 · 只读本地文件夹，不联网、不登录",
+  "main": "main.js",
+  "author": "local",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --win --dir"
+  },
+  "build": {
+    "appId": "local.manga.reader",
+    "productName": "漫画阅读器",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "site/**/*",
+      "!site/sw.js",
+      "!site/importer.js",
+      "!tools/**/*",
+      "!testlib/**/*",
+      "!dist/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "漫画阅读器",
+      "artifactName": "漫画阅读器-安装版-${version}.${ext}",
+      "installerLanguages": [
+        "zh_CN"
+      ],
+      "language": "2052",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "漫画阅读器-便携版-${version}.${ext}"
+    },
+    "compression": "normal"
+  },
+  "devDependencies": {
+    "electron": "43.3.0",
+    "electron-builder": "^26.0.12",
+    "ws": "^8.22.0"
+  }
+}

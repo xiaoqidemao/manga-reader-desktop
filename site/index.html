@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-page-node-id="sNGVFK04cYwCWZdCSIVlhk">
+
+<head data-page-node-id="S5XDd4UgN8DycD6NHkrUWT">
+  <meta charset="UTF-8" data-page-node-id="3AFm2UeRArCtDwowBFfFDr">
+  <meta name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" data-page-node-id="ECThqz7N6QNqGBlvzOD9fv">
+  <meta name="theme-color" content="#0b0b0d" data-page-node-id="AL2b565sCkWjMpeihMk942">
+  <meta name="color-scheme" content="dark light" data-page-node-id="V6iHgsT82qaBVGEADFolP9">
+  <meta name="mobile-web-app-capable" content="yes" data-page-node-id="Xra4K0Ecg0tVGrDl1RouYt">
+  <meta name="apple-mobile-web-app-capable" content="yes" data-page-node-id="RjtdP7L7OktRkAuH5EHHDt">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" data-page-node-id="EddrrzCUbhvKCbBkFkFRFt">
+  <meta name="apple-mobile-web-app-title" content="漫画阅读器" data-page-node-id="OA3Qfe0hzDHE7jleA9eKVB">
+  <meta name="description" content="本地漫画阅读器 · 支持图片与 ZIP/CBZ 导入、条漫与单页翻页双模式" data-page-node-id="C90AocmQ7xCeb7NEqFTo2D">
+
+  <title>漫画阅读器</title>
+
+  <!-- 尽早把主题定下来，避免浅色用户先闪一下深色。
+       必须是同步外链脚本（不能 defer/async），且放在 CSS 之前。
+       桌面版 CSP 禁止内联脚本，所以抽成独立文件。 -->
+  <script src="js/theme-boot.js"></script>
+
+  <link rel="manifest" href="manifest.json" data-page-node-id="d8lp7iKJ8qGPerdIyAo9A5">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" data-page-node-id="yWIgzYQ4hVSrbkk7a1iHBa">
+  <link rel="apple-touch-icon" href="icons/icon.svg" data-page-node-id="cS6l9JaIozZnHcF7MglGMo">
+  <link rel="stylesheet" href="css/style.css" data-page-node-id="CWGDYnf6XJAAigouqbuuHQ">
+</head>
+
+<body data-page-node-id="lkJDGNQFaSDqh5szLiEmpZ">
+
+  <!-- ==================== 书架 ==================== -->
+  <section id="view-library" class="view is-active" data-page-node-id="HijpVmFl2chz48Zzg20IAr">
+
+    <header class="topbar" data-page-node-id="YEtqNCx28BmD1RlbRW7Nx9">
+      <h1 data-page-node-id="CxTmsbCaofruZFSQ3N8kXx">书架<span class="sub" id="lib-count" data-page-node-id="LznaFxjm1jFzFwXdahpbIT"></span></h1>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btn-refresh" aria-label="重新扫描" title="重新扫描（Ctrl+R）">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M21 3v5h-5" />
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            <path d="M3 21v-5h5" />
+          </svg>
+        </button>
+        <button class="icon-btn" id="btn-open-folder" aria-label="换文件夹" title="换漫画文件夹（Ctrl+O）">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+        </button>
+        <button class="icon-btn" id="btn-data-dir" aria-label="数据位置" title="打开数据文件夹（进度与设置备份）">
+          <svg viewBox="0 0 24 24">
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5" />
+            <path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3" />
+          </svg>
+        </button>
+        <button class="icon-btn" id="btn-sort" aria-label="排序" title="排序">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 6h18M6 12h12M10 18h4" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="lib-scroll" id="lib-stage" data-page-node-id="w3B8s7W8Qq04wMn3XssK1S">
+
+      <div class="install-tip" id="install-tip" hidden>
+        <div class="install-tip-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 3v12" />
+            <path d="M8 8.5 12 4.5l4 4" />
+            <path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15" />
+          </svg>
+        </div>
+        <div class="install-tip-body">
+          <b>建议添加到主屏幕</b>
+          <span>iOS 会清空 7 天没打开过的网页数据，漫画会跟着一起没。装到主屏幕后不受影响，还能全屏用</span>
+        </div>
+        <button class="install-tip-close" id="install-tip-close" aria-label="不再提示">
+          <svg viewBox="0 0 24 24">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="empty" id="lib-empty" data-page-node-id="wjJ8SOSFqXGUaBa6eZ6OUq">
+        <div class="glyph" data-page-node-id="cfWn1MnxNDWapGAfvbn1VX">
+          <svg viewBox="0 0 24 24" data-page-node-id="p2JsECEGMtsoG8PGt74AIn">
+            <path d="M4 4h6a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H4z" data-page-node-id="i0f5vy6x8auOmgpjxYHTFM" />
+            <path d="M20 4h-6a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5H20z" data-page-node-id="8CoqlpRC6w9dJXAjiTTS07" />
+          </svg>
+        </div>
+        <h2>还没有选择漫画文件夹</h2>
+        <p>选一个放着漫画的文件夹，软件会直接读取里面的图片。不复制、不上传、不联网。</p>
+        <button class="cta" id="btn-import-empty" data-page-node-id="a9Cse2CmoYHPDXCiHwX73W">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" data-page-node-id="PnjqjjcxOWYmGzipqQ43l3">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+          <span>选择漫画文件夹</span>
+        </button>
+        <div class="hint" data-page-node-id="17Xsn88BYTa9ts450apyES">
+          每个「只有图片」的子文件夹算作一本
+        </div>
+      </div>
+
+      <div class="grid" id="lib-grid" data-page-node-id="9XqwBG1WozTPlTcDPh5epp"></div>
+
+    </div>
+
+    <button class="fab" id="fab-import" data-page-node-id="lXe7Rh6cVNVyEgp8DU86BN">
+      <svg viewBox="0 0 24 24" data-page-node-id="uPLzZe6vtgyI4pRgEuyVES">
+        <path d="M12 5v14M5 12h14" data-page-node-id="6erVPcdFTPpQcbGTsGX6NK" />
+      </svg>
+      <span data-page-node-id="BaDTX7Qkzdku6DhuratwQ3">导入</span>
+    </button>
+
+  </section>
+
+  <!-- ==================== 阅读器 ==================== -->
+  <section id="view-reader" class="view" data-page-node-id="z8KwbnXIO5g8qAX1ewmzN3">
+
+    <div class="reader-stage" id="rd-stage" data-page-node-id="vXaJ3DvV3PKJqf8WLU6OI4">
+      <div id="stage-paged" data-page-node-id="KrqRDuW58Nfkp4QeZXyoql"></div>
+      <div id="stage-webtoon" data-page-node-id="JQml3eHAXgLxctvCA54M2w">
+        <div class="webtoon-inner" id="webtoon-inner" data-page-node-id="rhSBEOIPK1nrhqBeszFIPz"></div>
+      </div>
+      <div id="stage-strip">
+        <div class="strip-inner" id="strip-inner"></div>
+      </div>
+    </div>
+
+    <div class="floating-page" id="rd-float" data-page-node-id="zfz8lnVfkviHFmk1kWYv50"></div>
+
+    <!-- 长卷模式：点画面浮现的缩略图带 -->
+    <div class="thumbs-panel" id="thumbs-panel">
+      <div class="thumbs-scroll" id="thumbs-scroll"></div>
+    </div>
+
+    <div class="reader-ui" id="reader-ui" data-page-node-id="gwGPCnqsqIgc88Ej7ULBaB">
+
+      <div class="bar bar-top" data-page-node-id="bXaCUWapMucYEziR27XFxH">
+        <button class="icon-btn" id="rd-back" aria-label="返回" data-page-node-id="4L7oPaB5YiXWQQDv4koKDF">
+          <svg viewBox="0 0 24 24" data-page-node-id="OoCqJizpjVRO9yj0IYOa0s">
+            <path d="M19 12H5" data-page-node-id="nvXThEwGKXoCeAoEyMBEuY" />
+            <path d="M12 19l-7-7 7-7" data-page-node-id="0SHnDpF6cny0MQ2fu05NTp" />
+          </svg>
+        </button>
+        <div class="reader-title" id="rd-title" data-page-node-id="Xee3rVcSDpCGzh9uFcBuiH"></div>
+        <button class="icon-btn" id="rd-more" aria-label="更多" data-page-node-id="SJ9C4xSFi0jdDCYAWRYEVh">
+          <svg viewBox="0 0 24 24" data-page-node-id="c6uHcnLeW8qvqNsoTscomj">
+            <path d="M8 6h13M8 12h13M8 18h13" data-page-node-id="42nb2tda74FenQn2EOTALE" />
+            <path d="M3 6h.01M3 12h.01M3 18h.01" data-page-node-id="yQPzUGZHYBM9HEz3EKc8JF" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="bar bar-bottom" data-page-node-id="KD8mq3pnKKL2PGddlghvz5">
+
+        <div class="row-scrub" data-page-node-id="fmTxPqBwCSOieOXE8EUB85">
+          <div class="scrub" id="rd-scrub" data-page-node-id="fvLt1G9fEjjOxs0yAwtclx">
+            <div class="scrub-track" data-page-node-id="S1VNFmXSQWNdOb2Yfs3dDM"></div>
+            <div class="scrub-fill" id="rd-scrub-fill" data-page-node-id="OalmyUfQOU2dmdciiaQ5dh"></div>
+            <div class="scrub-knob" id="rd-scrub-knob" data-page-node-id="JVunaQKeJRAs2GdSY4FJ7Z"></div>
+          </div>
+          <div class="scrub-label" id="rd-scrub-label" data-page-node-id="FvAYxLBgJJteyiD33RImg4"></div>
+        </div>
+
+        <div class="row-tools" data-page-node-id="ZQXGALsimJfAE1PGR5e86D">
+          <div class="seg" id="rd-mode" data-page-node-id="Nf10FVUK6K0s7H1zF1zhM8">
+            <button data-mode="paged" data-page-node-id="q7Gq8wVvVQd2S17jbcZDPj"><span data-page-node-id="M2bmyWzUDPDOTCTzkP3Ylh">单页</span></button>
+            <button data-mode="spread" data-page-node-id="EBDWMfSK9jteCiaBtPZkxk"><span data-page-node-id="z77Cv3o9uFmsvlKtDQNxL3">跨页</span></button>
+            <button data-mode="webtoon" data-page-node-id="xSiRBSojcqDrPPGK2uo26Z"><span data-page-node-id="TMDTP5NIKiBTT2GvC17QuS">条漫</span></button>
+            <button data-mode="strip"><span>长卷</span></button>
+          </div>
+
+          <div class="tool-group" data-page-node-id="r2wj5krFrqBLymCds5q8W4">
+            <button class="icon-btn" id="rd-dir" aria-label="翻页方向" data-page-node-id="AQZc6OVJcqCeQJ2yaMFkv1"></button>
+            <button class="icon-btn" id="rd-theme" aria-label="主题" data-page-node-id="lswR49PVcH0PfACJWTnFi6">
+              <svg viewBox="0 0 24 24" data-page-node-id="5lZCMdVqEODfsBmkf11Mfx">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" data-page-node-id="90iOEY3LoTkfINonuzeOxx" />
+              </svg>
+            </button>
+            <button class="icon-btn" id="rd-fullscreen" aria-label="全屏" data-page-node-id="ADC8odfwffBAPyCZlFZk2i">
+              <svg viewBox="0 0 24 24" data-page-node-id="7VVDGgfwcAInHDGHqyCxo2">
+                <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" data-page-node-id="iia7ohFD6Lq4pCOhoiNDHH" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </section>
+
+  <script type="module" src="js/app.js"></script>
+
+</body>
+
+</html>

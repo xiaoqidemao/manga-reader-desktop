@@ -1,0 +1,35 @@
+{
+  "name": "漫画阅读器",
+  "short_name": "漫画",
+  "description": "纯本地漫画阅读器 · 支持图片与 ZIP/CBZ 导入，条漫连续滚动与单页翻页双模式",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "id": "manga-reader-local",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f4f4f6",
+  "theme_color": "#f4f4f6",
+  "categories": ["books", "entertainment"],
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

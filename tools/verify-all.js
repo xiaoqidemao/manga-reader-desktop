@@ -49,19 +49,24 @@ function getTargets() {
 
   const report = {};
 
-  // 1. 书架
+  // 1. 书架（先强制回到根目录，保证测的是初始视图）
   //    分层浏览后，根目录显示的是文件夹卡片，不是书。
-  //    所以「书架有内容」= 文件夹卡片 + 书卡片，两者都算；
-  //    封面懒加载只在有书卡片时才检查。
-  report.shelf = await ev(`({
-    cards: document.querySelectorAll('.card').length,
-    dirCards: document.querySelectorAll('.card-dir').length,
-    bookCards: document.querySelectorAll('.card:not(.card-dir)').length,
-    countText: document.getElementById('lib-count').textContent,
-    coversLoaded: document.querySelectorAll('.card-cover img').length,
-    crumbs: document.getElementById('lib-crumbs') ?
-      document.getElementById('lib-crumbs').textContent.trim() : ''
-  })`);
+  report.shelf = await ev(`(async () => {
+    const DB = await import('./js/db.js');
+    const L = await import('./js/library.js');
+    const s = await window.mangaHost.getSettings();
+    await L.enterRoot(s.rootDir);
+    await new Promise(r => setTimeout(r, 900));
+    return {
+      cards: document.querySelectorAll('.card').length,
+      dirCards: document.querySelectorAll('.card-dir').length,
+      bookCards: document.querySelectorAll('.card:not(.card-dir)').length,
+      countText: document.getElementById('lib-count').textContent,
+      coversLoaded: document.querySelectorAll('.card-cover img').length,
+      crumbs: document.getElementById('lib-crumbs') ?
+        document.getElementById('lib-crumbs').textContent.trim() : ''
+    };
+  })()`);
 
   // 1b. 封面懒加载
   //     分层浏览下，书的「父目录」通常只含这一本书，
@@ -85,6 +90,31 @@ function getTargets() {
       coversLoaded: document.querySelectorAll('.card-cover img').length,
       crumb: document.getElementById('lib-crumbs').textContent.trim()
     };
+  })()`);
+
+  // 1c. 自动折叠：全是书的目录应直接显示封面，不再多一层
+  report.collapse = await ev(`(async () => {
+    const s = await window.mangaHost.getSettings();
+    const root = s.rootDir;
+
+    // 在根目录的子文件夹里，找一个「折叠后直接出书」的
+    const r = await window.mangaHost.browse(root);
+    const cands = (r.dirs || []).slice(0, 12);
+
+    for (const d of cands) {
+      const kids = await window.mangaHost.browse(d.path);
+      if (kids.collapsed === true && (kids.books || []).length > 0) {
+        return {
+          skipped: false,
+          dir: d.name,
+          collapsed: true,
+          books: kids.books.length,
+          dirsLeft: (kids.dirs || []).length,
+          sample: kids.books.slice(0, 3).map(b => b.title)
+        };
+      }
+    }
+    return { skipped: true, checked: cands.length };
   })()`);
 
   // 2. 打开一本大书
@@ -198,6 +228,9 @@ function getTargets() {
     '书架有内容': report.shelf.cards > 0,
     '分层：根目录是文件夹': report.shelf.dirCards > 0,
     '面包屑正常': /书架/.test(report.shelf.crumbs || ''),
+    '自动折叠（全是书直显封面）': report.collapse &&
+      (report.collapse.skipped === true ||
+       (report.collapse.collapsed === true && report.collapse.books > 0)),
     '封面懒加载': (report.coverTest && report.coverTest.coversLoaded > 0) || false,
     '能打开书': report.open.active === true,
     '单页模式': report.modes.paged.paged === true,

@@ -446,12 +446,71 @@ async function browseDir(dir) {
   }
 
   dirCards.sort((a, b) => naturalCompare(a.name, b.name));
+
+  /* ------------------------------------------------------------
+     自动折叠：如果这一层里所有子文件夹都是「书」（只有图片），
+     就没必要再让用户点一次进去，直接把它们当书展示。
+     例如「成田大进」下的 89 个目录全都是书 → 进来就看到封面。
+
+     只要混有任何「中间层」目录（比如 qqqpppqpqpqp 里既有书
+     又有日期文件夹），就保持原样，避免层级关系看不清。
+     ------------------------------------------------------------ */
+  const allDirsAreBooks = dirCards.length > 0 && dirCards.every((d) => d.isBook);
+  const collapsed = allDirsAreBooks && files.length === 0;
+
+  if (collapsed) {
+    const asBooks = dirCards.map((d) => ({
+      id: d.path,
+      title: titleFor(d.path),
+      dir: d.path,
+      kind: 'folder',
+      name: d.name,
+      pageCount: d.pageCount,
+      bytes: 0,
+      cover: null,
+      mtime: 0,
+    }));
+    return {
+      ok: true,
+      dir: dir,
+      entryCount,
+      dirs: [],
+      books: decorateBooks(asBooks),
+      collapsed: true,
+    };
+  }
+
+  // 这个目录自己就是一本（有图片、没有子目录）
+  if (dirs.length === 0 && images.length > 0) {
+    images.sort((a, b) => naturalCompare(a.name, b.name));
+    const b = await makeFolderBook(dir, images);
+    books.push(b);
+  }
+
+  // 本层散落的压缩包 / PDF
+  for (const f of files) {
+    let st;
+    try { st = await fsp.stat(f.full); } catch (e) { continue; }
+    books.push({
+      id: f.full,
+      title: path.basename(f.name, f.ext),
+      dir: f.full,
+      kind: PDF_EXT.has(f.ext) ? 'pdf' : 'archive',
+      name: f.name,
+      pageCount: 0,
+      bytes: st.size,
+      cover: null,
+      mtime: st.mtimeMs,
+    });
+  }
+
   return {
     ok: true,
     dir: dir,
     entryCount,
     dirs: dirCards,
     books: decorateBooks(books),
+    collapsed: false,
   };
 }
 

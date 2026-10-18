@@ -795,24 +795,21 @@ img {
   background: var(--surface);
 }
 
-/* ---- 缩略图带（点击画面浮现） ---- */
+/* ---- 缩略图带（嵌在底部工具栏内、进度条上方） ----
+   不再自己浮在窗口底部，而是作为 bar-bottom 的第一行，
+   跟着工具栏整体升降；显隐只切换高度/透明度，不做位移动画，
+   否则会跟工具栏的 transform 打架。 */
 
 .thumbs-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 60;
-  padding: 10px 0 8px;
-  background: linear-gradient(to top, rgba(0, 0, 0, .94) 30%, rgba(0, 0, 0, .72) 70%, rgba(0, 0, 0, 0));
-  transform: translateY(100%);
+  overflow: hidden;
+  max-height: 0;
   opacity: 0;
   pointer-events: none;
-  transition: transform .22s var(--ease), opacity .22s var(--ease);
+  transition: max-height .22s var(--ease), opacity .18s var(--ease);
 }
 
 .thumbs-panel.is-show {
-  transform: translateY(0);
+  max-height: 132px;
   opacity: 1;
   pointer-events: auto;
 }
@@ -820,7 +817,7 @@ img {
 .thumbs-scroll {
   display: flex;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 8px 0 6px;
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, .28) transparent;

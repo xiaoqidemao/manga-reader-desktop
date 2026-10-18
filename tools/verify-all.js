@@ -232,6 +232,27 @@ function getTargets() {
     current: document.querySelectorAll('.thumb-item.is-current').length
   })`);
 
+  // 5b. 缩略图带必须在底部工具栏内、且位于进度条上方
+  report.thumbsLayout = await ev(`(() => {
+    const panel = document.getElementById('thumbs-panel');
+    const bar = document.querySelector('.bar-bottom');
+    const scrub = document.querySelector('.row-scrub');
+    if (!panel || !bar || !scrub) return { ok: false, reason: 'missing' };
+
+    const inBar = bar.contains(panel);
+    const pr = panel.getBoundingClientRect();
+    const sr = scrub.getBoundingClientRect();
+
+    // 在工具栏内 且 顶边在进度条顶边之上
+    return {
+      ok: inBar && pr.top < sr.top + 4,
+      inBar,
+      panelTop: Math.round(pr.top),
+      scrubTop: Math.round(sr.top),
+      above: pr.top < sr.top
+    };
+  })()`);
+
   // 6. 点缩略图跳页
   report.thumbJump = await ev(`(async () => {
     const st = document.getElementById('stage-strip');
@@ -286,6 +307,7 @@ function getTargets() {
     '长卷零间隙': report.strip.clickableGap === '0px' || report.strip.clickableGap === 'normal',
     '滚轮向左': report.strip.wheelMovesLeft === true,
     '缩略图带': report.thumbs.shown === true,
+    '缩略图在进度条上方': report.thumbsLayout && report.thumbsLayout.ok === true,
     '缩略图跳页': report.thumbJump.after !== report.thumbJump.before,
     '返回书架': report.back.closed === true,
     '进度已存': report.progress.entries > 0,

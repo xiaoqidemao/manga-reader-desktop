@@ -1127,18 +1127,36 @@ function markCurrentThumb(idx) {
   }
 }
 
+/* ------------------------------------------------------------
+   缩略图带
+   ------------------------------------------------------------
+   v1.1 之后它嵌在底部工具栏里（进度条上方），跟着工具栏一起升降。
+   所以这里不再单独控制「浮层」，而是统一由 showUI / toggleUI 驱动：
+     · 点画面中部 → 工具栏和缩略图带一起出现
+     · 再点一次   → 一起隐藏
+   缩略图带自身的 is-show 只用来展开/收起它那一行的高度。
+   ------------------------------------------------------------ */
+
 function toggleThumbs() {
   if (!S.book || !isStrip()) { toggleUI(); return; }
-  if (thumbsVisible) hideThumbs();
-  else showThumbs();
+  // 跟工具栏保持同一节奏：工具栏现在显示，就把缩略图带也打开
+  if (thumbsVisible) {
+    hideThumbs();
+    showUI();          // 工具栏留着（隐藏缩略图带后仍可操作进度条）
+  } else {
+    showThumbs();
+  }
 }
 
 async function showThumbs() {
   if (!S.book || !E.thumbsPanel) return;
+  if (!thumbsEnabled()) return;
+
+  // 先置位再 showUI：showUI 看到 thumbsVisible 就不会启动自动隐藏
   thumbsVisible = true;
   E.thumbsPanel.classList.add('is-show');
+  showUI(false);
   await buildThumbs(S.stripPage);
-  showUI(true);
 }
 
 function hideThumbs() {
@@ -1399,14 +1417,14 @@ function singleTap(x, y) {
 
   if (S.mode === 'webtoon') { toggleUI(); return; }
 
-  // 长卷：点画面中心 → 浮出缩略图带；点左右 → 前后翻页
+  // 长卷：点画面中心 → 工具栏 + 缩略图带一起显隐；点左右 → 前后翻页
   if (isStrip()) {
     const cx = (window.innerWidth || 1) / 2;
     const cy = (window.innerHeight || 1) / 2;
     const nearCenter = Math.abs(x - cx) < (window.innerWidth * 0.28)
       && Math.abs(y - cy) < (window.innerHeight * 0.3);
 
-    if (nearCenter) { toggleThumbs(); return; }
+    if (nearCenter) { toggleToolbarWithThumbs(); return; }
 
     if (x < cx) jumpStripPage(S.stripPage - 1, true);
     else jumpStripPage(S.stripPage + 1, true);
@@ -1573,6 +1591,12 @@ function showUI(autoHide) {
   E.ui.classList.add('is-show');
   if (uiTimer) clearTimeout(uiTimer);
   uiTimer = null;
+
+  /* 缩略图带展开时不自动收工具栏：
+     用户正在挑图，4 秒后突然整条消失会很难用。
+     等他挑完（点缩略图跳页 / 再点画面）才恢复自动隐藏。 */
+  if (thumbsVisible) return;
+
   if (autoHide !== false) {
     // 进入阅读器时多停一会儿，让用户看清有哪些操作
     uiTimer = setTimeout(hideUI, 4200);
@@ -1582,11 +1606,35 @@ function showUI(autoHide) {
 function hideUI() {
   E.ui.classList.remove('is-show');
   if (uiTimer) { clearTimeout(uiTimer); uiTimer = null; }
+  // 缩略图带是同一条工具栏的一部分，工具栏收了它也收
+  if (thumbsVisible) hideThumbs();
 }
 
 function toggleUI() {
   if (E.ui.classList.contains('is-show')) hideUI();
   else showUI(true);
+}
+
+/** 工具栏是否可见 */
+function uiVisible() {
+  return !!(E.ui && E.ui.classList.contains('is-show'));
+}
+
+/* ------------------------------------------------------------
+   长卷模式下的「点画面中部」
+   ------------------------------------------------------------
+   需求：点一下，工具栏和缩略图带一起出现；再点一下，一起隐藏。
+   所以这里以「工具栏是否可见」作为唯一状态，两者同步。
+   ------------------------------------------------------------ */
+async function toggleToolbarWithThumbs() {
+  if (!S.book || !isStrip()) { toggleUI(); return; }
+
+  if (uiVisible()) {
+    hideUI();                     // 会顺带 hideThumbs()
+  } else {
+    showUI();                     // 先让工具栏升起
+    await showThumbs();           // 缩略图带在同一行里展开
+  }
 }
 
 /* ============================================================

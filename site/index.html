@@ -43,7 +43,29 @@
       </nav>
       <span class="sub" id="lib-count" data-page-node-id="LznaFxjm1jFzFwXdahpbIT"></span>
       <span class="sub cache-note" id="lib-cache-note"></span>
+
+      <!-- 搜索框：点放大镜时展开，Esc 或清空后收起 -->
+      <div class="lib-search" id="lib-search">
+        <svg class="lib-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="M20 20l-3.5-3.5" />
+        </svg>
+        <input type="search" id="lib-search-input" placeholder="搜索书名或路径…"
+               autocomplete="off" spellcheck="false" aria-label="搜索全书架" />
+        <button class="lib-search-clear" id="lib-search-clear" aria-label="清空搜索" hidden>
+          <svg viewBox="0 0 24 24">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
       <div class="topbar-actions" data-page-node-id="x2rBqQ4mYkL8nTzVhC6sWd">
+        <button class="icon-btn" id="btn-search" aria-label="搜索" title="搜索全书架（Ctrl+F）">
+          <svg viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3.5-3.5" />
+          </svg>
+        </button>
         <button class="icon-btn" id="btn-refresh" aria-label="重新扫描" title="重新扫描（Ctrl+R）">
           <svg viewBox="0 0 24 24">
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
@@ -120,8 +142,12 @@
         </div>
       </div>
 
-      <div class="grid" id="lib-grid" data-page-node-id="9XqwBG1WozTPlTcDPh5epp"></div>
+      <div class="lib-search-note" id="lib-search-note">
+        <span>搜索：<b id="lib-search-kw"></b> · 找到 <b id="lib-search-total">0</b> 本</span>
+        <button id="lib-search-exit">退出搜索</button>
+      </div>
 
+      <div class="grid" id="lib-grid" data-page-node-id="9XqwBG1WozTPlTcDPh5epp"></div>
     </div>
 
     <button class="fab" id="fab-import" data-page-node-id="lXe7Rh6cVNVyEgp8DU86BN">

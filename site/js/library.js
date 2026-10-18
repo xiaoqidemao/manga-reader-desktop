@@ -675,6 +675,208 @@ async function setCustomCover(book) {
   toast('封面已更新', 2000);
 }
 
+/* ---------------- 全书搜索 ---------------- */
+
+const SEARCH = {
+  active: false,
+  keyword: '',
+  timer: null,
+};
+
+function searchEls() {
+  return {
+    box: document.getElementById('lib-search'),
+    input: document.getElementById('lib-search-input'),
+    clear: document.getElementById('lib-search-clear'),
+    note: document.getElementById('lib-search-note'),
+    kw: document.getElementById('lib-search-kw'),
+    total: document.getElementById('lib-search-total'),
+    exit: document.getElementById('lib-search-exit'),
+    grid: document.getElementById('lib-grid'),
+    empty: document.getElementById('lib-empty'),
+    count: document.getElementById('lib-count'),
+  };
+}
+
+/** 展开搜索框并聚焦 */
+function openSearch() {
+  const { box, input } = searchEls();
+  if (!box || !input) return;
+  box.classList.add('is-open');
+  setTimeout(() => input.focus(), 120);
+}
+
+/** 收起搜索框（不退出搜索状态） */
+function closeSearchBox() {
+  const { box } = searchEls();
+  if (box) box.classList.remove('is-open');
+}
+
+/** 退出搜索，回到正常浏览 */
+function exitSearch() {
+  const e = searchEls();
+  SEARCH.active = false;
+  SEARCH.keyword = '';
+  if (e.input) e.input.value = '';
+  if (e.clear) e.clear.hidden = true;
+  if (e.note) e.note.classList.remove('is-show');
+  closeSearchBox();
+  // 回到当前目录的正常视图
+  if (BROWSE.path) {
+    navigateTo(BROWSE.path);
+  } else {
+    renderCurrentView();
+  }
+}
+
+/** 执行搜索（带 250ms 防抖） */
+function scheduleSearch(kw) {
+  if (SEARCH.timer) clearTimeout(SEARCH.timer);
+  SEARCH.timer = setTimeout(() => runSearch(kw), 250);
+}
+
+async function runSearch(kw) {
+  const e = searchEls();
+  const keyword = String(kw || '').trim();
+
+  if (e.clear) e.clear.hidden = !keyword;
+
+  if (!keyword) {
+    // 清空输入 → 退出搜索
+    if (SEARCH.active) exitSearch();
+    return;
+  }
+
+  SEARCH.active = true;
+  SEARCH.keyword = keyword;
+
+  const r = await DB.search(keyword);
+
+  if (!r.ok) {
+    if (r.reason === 'no-cache') {
+      toast('还没有书架缓存，请先点右上角「刷新」扫描一次', 3600);
+      if (e.note) e.note.classList.remove('is-show');
+    }
+    return;
+  }
+
+  // 渲染结果
+  const dirs = r.dirs || [];
+  const books = r.books || [];
+
+  BROWSE.dirs = dirs;
+  BROWSE.books = sortBooks(books, getSort());
+  allBooks = BROWSE.books;
+
+  if (e.kw) e.kw.textContent = keyword;
+  if (e.total) e.total.textContent = String(r.total || books.length);
+  if (e.note) e.note.classList.add('is-show');
+
+  // 搜索时数量提示换成「N 个文件夹 · M 本」
+  if (e.count) {
+    const parts = [];
+    if (books.length) parts.push(`${books.length} 本`);
+    if (dirs.length) parts.push(`${dirs.length} 个文件夹`);
+    e.count.textContent = parts.join(' · ');
+  }
+
+  renderSearchResults(dirs, books);
+
+  // 搜索结果不需要恢复滚动位置，回到顶部
+  const stage = els().stage;
+  if (stage) stage.scrollTop = 0;
+}
+
+/** 渲染搜索结果（文件夹在前，书在后） */
+function renderSearchResults(dirs, books) {
+  const { grid, empty } = searchEls();
+
+  if (!dirs.length && !books.length) {
+    grid.innerHTML = '';
+    grid.classList.add('hidden');
+    empty.classList.remove('is-show');   // 不显示「没选择文件夹」那个空状态
+    grid.classList.remove('hidden');
+    grid.innerHTML = '<div class="search-empty">没有找到匹配的内容</div>';
+    return;
+  }
+
+  grid.classList.remove('hidden');
+  empty.classList.remove('is-show');
+
+  const dirHTML = dirs.map(dirCardHTML).join('');
+  const bookHTML = books.map(cardHTML).join('');
+  grid.innerHTML = dirHTML + bookHTML;
+
+  // 文件夹：双击进入（会清掉搜索状态）
+  grid.querySelectorAll('.card-dir').forEach((el) => {
+    const d = dirs.find((x) => x.path === el.dataset.dir);
+    if (!d) return;
+    el.addEventListener('dblclick', (ev) => {
+      ev.preventDefault();
+      SEARCH.active = false;
+      SEARCH.keyword = '';
+      const se = searchEls();
+      if (se.input) se.input.value = '';
+      if (se.note) se.note.classList.remove('is-show');
+      closeSearchBox();
+      navigateTo(d.path);
+    });
+  });
+
+  // 书：单击打开
+  grid.querySelectorAll('.card:not(.card-dir)').forEach((el) => {
+    const book = books.find((b) => b.id === el.dataset.id);
+    if (book) bindCard(el, book);
+  });
+
+  books.forEach((b) => {
+    const el = grid.querySelector(`.card[data-id="${cssEscape(b.id)}"] .card-cover`);
+    if (el) el.dataset.coverId = b.id;
+  });
+
+  observeCovers();
+  grid.querySelectorAll('.card:not(.card-dir) .card-cover').forEach((c) => io && io.observe(c));
+}
+
+/** 绑定搜索框相关事件 */
+function bindSearch() {
+  const e = searchEls();
+  if (!e.input) return;
+
+  e.input.addEventListener('input', () => {
+    scheduleSearch(e.input.value);
+  });
+
+  // 回车立即搜索
+  e.input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      if (SEARCH.timer) clearTimeout(SEARCH.timer);
+      runSearch(e.input.value);
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      if (e.input.value) {
+        // 有内容：先清空
+        e.input.value = '';
+        exitSearch();
+      } else {
+        closeSearchBox();
+      }
+    }
+  });
+
+  if (e.clear) {
+    e.clear.onclick = () => {
+      e.input.value = '';
+      exitSearch();
+      openSearch();
+    };
+  }
+
+  if (e.exit) {
+    e.exit.onclick = () => exitSearch();
+  }
+}
+
 /* ---------------- 默认阅读方式 / 方向 ---------------- */
 
 /**
@@ -966,6 +1168,11 @@ export function initLibrary(opts = {}) {
 
   document.getElementById('btn-sort').onclick = showSortMenu;
   document.getElementById('btn-default-mode').onclick = showDefaultModeMenu;
+
+  // 搜索
+  const btnSearch = document.getElementById('btn-search');
+  if (btnSearch) btnSearch.onclick = () => openSearch();
+  bindSearch();
   document.getElementById('btn-data-dir').onclick = () => window.mangaHost.openDataDir();
   document.getElementById('btn-refresh').onclick = () => rescan();
   document.getElementById('btn-open-folder').onclick = () => chooseFolder();
@@ -997,6 +1204,14 @@ export function initLibrary(opts = {}) {
     if (inReader) return;
 
     const inField = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+
+    // Ctrl+F：聚焦搜索框
+    if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
+      e.preventDefault();
+      openSearch();
+      return;
+    }
+
     if (inField) return;
 
     if ((e.altKey && e.key === 'ArrowLeft') || e.key === 'Backspace') {

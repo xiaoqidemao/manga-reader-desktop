@@ -848,6 +848,63 @@ function setupIPC() {
     }
   });
 
+  /* --- 全书搜索 ---
+     搜的是 books.json 缓存里的书名和路径，不碰磁盘。
+     缓存没有或已过期时，前端会先提示刷新。 */
+  ipcMain.handle('library:search', async (e, keyword) => {
+    const kw = String(keyword || '').trim().toLowerCase();
+    if (!kw) return { ok: true, books: [], dirs: [], total: 0 };
+
+    const cache = readBookCache();
+    if (!cache) return { ok: false, reason: 'no-cache', books: [], dirs: [] };
+
+    const books = decorateBooks(cache.books || []);
+    const hitBooks = [];
+    // 命中的书所属目录，用于推导「文件夹」结果
+    const dirSet = new Map();
+
+    for (const b of books) {
+      const title = String(b.title || '').toLowerCase();
+      const p = String(b.path || '').toLowerCase();
+      if (title.includes(kw) || p.includes(kw)) {
+        hitBooks.push(b);
+        // 记下它所在的父目录，方便给用户「去那个文件夹看看」
+        const parent = String(b.path || '').replace(/[\\/][^\\/]+$/, '');
+        if (parent && parent !== b.path) dirSet.set(parent, (dirSet.get(parent) || 0) + 1);
+      }
+    }
+
+    // 目录本身命中关键字也算（比如搜作者名，能直接给出该文件夹）
+    const root = cache.rootDir || '';
+    const seenDir = new Set();
+    const dirs = [];
+    for (const b of books) {
+      const parent = String(b.path || '').replace(/[\\/][^\\/]+$/, '');
+      if (!parent || seenDir.has(parent)) continue;
+      seenDir.add(parent);
+      const name = parent.split(/[\\/]/).pop() || parent;
+      // 只保留「名字命中」或「里面有命中的书」的目录
+      if (String(name).toLowerCase().includes(kw) || dirSet.has(parent)) {
+        dirs.push({
+          type: 'dir',
+          name,
+          path: parent,
+          entryCount: dirSet.get(parent) || 0,
+          isBook: false,
+          pageCount: 0,
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      books: hitBooks.slice(0, 300),      // 上限，避免一次塞太多 DOM
+      dirs: dirs.slice(0, 60),
+      total: hitBooks.length,
+      rootDir: root,
+    };
+  });
+
   /* --- 取一本书的完整页列表 --- */
   ipcMain.handle('book:pages', async (e, id) => {
     try {

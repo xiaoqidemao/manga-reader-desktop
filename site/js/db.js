@@ -271,6 +271,21 @@ const DB = {
     return res;
   },
 
+  /**
+   * 全书搜索（搜书名与路径，基于 books.json 缓存）。
+   * 返回 { ok, books, dirs, total }
+   */
+  async search(keyword) {
+    ensureHost();
+    const kw = String(keyword || '').trim();
+    if (!kw) return { ok: true, books: [], dirs: [], total: 0 };
+    const res = await host.search(kw);
+    if (!res || !res.ok) {
+      return { ok: false, reason: (res && res.reason) || 'search-failed', books: [], dirs: [], total: 0 };
+    }
+    return res;
+  },
+
   getScanInfo() {
     return lastScan;
   },

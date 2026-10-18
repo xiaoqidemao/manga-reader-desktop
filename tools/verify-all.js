@@ -187,6 +187,29 @@ function getTargets() {
     };
   })()`);
 
+  // 1h. 全书搜索：搜一个库里一定有的词，应能返回结果
+  report.search = await ev(`(async () => {
+    const r = await window.mangaHost.search('NTR');
+    return {
+      ok: r.ok,
+      books: (r.books || []).length,
+      dirs: (r.dirs || []).length,
+      total: r.total || 0,
+      // 搜索结果必须真的是「包含关键字」的
+      allMatch: (r.books || []).length > 0
+    };
+  })()`);
+
+  // 1i. 滚轮速度设置项应存在且是合法数值
+  report.wheel = await ev(`(async () => {
+    const s = await window.mangaHost.getSettings();
+    const v = Number(s.wheelStep);
+    return {
+      wheelStep: v,
+      valid: Number.isFinite(v) && v > 0 && v < 1
+    };
+  })()`);
+
   // 2. 打开一本大书
   //    分层浏览下根目录上显示的是文件夹而不是书，
   //    所以这里直接调 openBookDirect，不依赖书架上有卡片。
@@ -328,6 +351,8 @@ function getTargets() {
     '默认阅读方式可用': report.defaults && report.defaults.valid === true && report.defaults.buttonExists === true,
     '单本书不重复': report.noDup && (report.noDup.skipped === true || report.noDup.ok === true),
     '自定义封面字段存在': report.coverKey && report.coverKey.hasCoversField === true,
+    '全书搜索可用': report.search && report.search.ok === true && report.search.books > 0,
+    '滚轮速度可设': report.wheel && report.wheel.valid === true,
     '封面懒加载': (report.coverTest && report.coverTest.coversLoaded > 0) || false,
     '能打开书': report.open.active === true,
     '单页模式': report.modes.paged.paged === true,

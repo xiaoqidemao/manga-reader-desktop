@@ -1729,6 +1729,12 @@ async function openMoreMenu() {
       value: 'thumbs',
       icon: thumbsEnabled() ? 'check' : undefined,
     },
+    {
+      label: '滚轮速度',
+      sub: wheelSpeedLabel(),
+      value: 'wheelStep',
+      icon: 'sort',
+    },
   ];
 
   if (S.mode === 'spread') {
@@ -1771,6 +1777,9 @@ async function openMoreMenu() {
     if (!on) hideThumbs();
     toast(on ? '缩略图带：开' : '缩略图带：关（更省性能）', 1600);
     showUI(true);
+  } else if (v === 'wheelStep') {
+    await pickWheelSpeed();
+    showUI(true);
   } else if (v === 'coverAlone') {
     await toggleCoverAlone();
     showUI(true);
@@ -1788,6 +1797,60 @@ async function openMoreMenu() {
   } else {
     showUI(true);
   }
+}
+
+/* ------------------------------------------------------------
+   滚轮速度
+   ------------------------------------------------------------
+   wheelStep 的含义：滚轮滚一格的位移 = 舞台宽度 × wheelStep。
+   0.08 表示一格滚过屏宽的 8%。数值越大，一次滚得越远。
+   ------------------------------------------------------------ */
+
+const WHEEL_PRESETS = [
+  { value: 0.03, label: '很慢', desc: '一格约 3% 屏宽，精细控制' },
+  { value: 0.05, label: '慢', desc: '一格约 5% 屏宽' },
+  { value: 0.08, label: '标准', desc: '一格约 8% 屏宽（默认）' },
+  { value: 0.14, label: '快', desc: '一格约 14% 屏宽' },
+  { value: 0.22, label: '很快', desc: '一格约 22% 屏宽，适合快速浏览' },
+];
+
+function currentWheelStep() {
+  const s = DB.getSettings() || {};
+  const v = Number(s.wheelStep);
+  return Number.isFinite(v) && v > 0 ? v : 0.08;
+}
+
+function wheelSpeedLabel() {
+  const cur = currentWheelStep();
+  // 找最接近的预设名；用户手动改过数值也能给出合理描述
+  let best = WHEEL_PRESETS[0];
+  let bestDiff = Infinity;
+  for (const p of WHEEL_PRESETS) {
+    const d = Math.abs(p.value - cur);
+    if (d < bestDiff) { bestDiff = d; best = p; }
+  }
+  const pct = Math.round(cur * 100);
+  return bestDiff < 0.005 ? `${best.label} · 一格 ${pct}% 屏宽` : `一格 ${pct}% 屏宽`;
+}
+
+async function pickWheelSpeed() {
+  const cur = currentWheelStep();
+  const v = await sheet({
+    title: '滚轮速度（长卷模式）',
+    items: WHEEL_PRESETS.map((p) => ({
+      label: `${p.label} · 一格 ${Math.round(p.value * 100)}% 屏宽`,
+      sub: p.desc,
+      value: String(p.value),
+      icon: Math.abs(p.value - cur) < 0.005 ? 'check' : undefined,
+    })),
+  });
+
+  if (!v) return;
+  const next = Number(v);
+  if (!Number.isFinite(next) || next <= 0) return;
+
+  await DB.setSettings({ wheelStep: next });
+  toast(`滚轮速度：${Math.round(next * 100)}% 屏宽`, 1800);
 }
 
 /* ============================================================

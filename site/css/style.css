@@ -269,6 +269,131 @@ img {
   stroke-width: 1.5;
 }
 
+/* ---- 书架搜索 ---- */
+
+.lib-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  margin-left: auto;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  width: 0;
+  opacity: 0;
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+  transition: width .2s var(--ease), opacity .16s var(--ease), padding .2s var(--ease);
+}
+
+.lib-search.is-open {
+  width: 240px;
+  opacity: 1;
+  padding: 0 10px;
+}
+
+.lib-search-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  stroke: var(--text-faint);
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.lib-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.lib-search input::placeholder {
+  color: var(--text-faint);
+}
+
+/* 去掉 Chrome 给 type=search 自带的叉号和放大镜 */
+.lib-search input::-webkit-search-cancel-button,
+.lib-search input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.lib-search-clear {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-faint);
+  background: transparent;
+}
+
+.lib-search-clear:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.lib-search-clear svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+/* 搜索结果提示条 */
+.lib-search-note {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0 calc(16px + var(--safe-r)) 0 calc(16px + var(--safe-l));
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.lib-search-note.is-show {
+  display: flex;
+}
+
+.lib-search-note b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.lib-search-note button {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* 搜索结果为空 */
+.search-empty {
+  grid-column: 1 / -1;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
 /* ---- 文件夹卡片 ---- */
 
 .card-dir .dir-cover {

@@ -600,14 +600,34 @@ function bindCard(el, book) {
 async function showBookMenu(book) {
   const items = [
     { label: '重命名（只改显示名）', value: 'rename', icon: 'edit' },
+    { label: '设置封面…', value: 'setCover', icon: 'book' },
     { label: '打开所在文件夹', value: 'reveal', icon: 'folder' },
   ];
+
+  // 已经有自定义封面时，给一个恢复入口
+  if (DB.hasCustomCover(book.id)) {
+    items.splice(2, 0, { label: '恢复默认封面', value: 'resetCover', icon: 'reset' });
+  }
+
   if (book.lastReadAt) {
     items.push({ label: '重置阅读进度', value: 'restart', icon: 'reset' });
   }
   items.push({ label: '标记为已读完', value: 'done', icon: 'check' });
 
   const v = await sheet({ title: book.title, items });
+
+  if (v === 'setCover') {
+    await setCustomCover(book);
+    return;
+  }
+
+  if (v === 'resetCover') {
+    await DB.resetCover(book.id);
+    coverCache.delete(book.id);          // 清掉内存里的旧封面
+    await reload();
+    toast('已恢复默认封面');
+    return;
+  }
 
   if (v === 'rename') {
     const name = await promptInput({ title: '重命名（只改显示名，不动磁盘）', value: book.title });
@@ -633,6 +653,26 @@ async function showBookMenu(book) {
     await reload();
     toast('已标记为读完');
   }
+}
+
+/* ---------------- 自定义封面 ---------------- */
+
+/**
+ * 选一张图片作为这本书的封面。
+ * 只记录图片路径，不复制、不移动、不改动你的任何文件。
+ */
+async function setCustomCover(book) {
+  const r = await DB.pickCover(book.id);
+  if (!r || !r.ok) {
+    if (r && r.canceled) return;      // 用户取消了，什么也不说
+    toast('设置封面失败：' + ((r && r.error) || '未知错误'), 3200);
+    return;
+  }
+
+  // 清掉这一本的封面缓存，让书架重新拉一次
+  coverCache.delete(book.id);
+  await reload();
+  toast('封面已更新', 2000);
 }
 
 /* ---------------- 默认阅读方式 / 方向 ---------------- */

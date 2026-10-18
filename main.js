@@ -138,6 +138,55 @@ async function rawImageDataUrl(filePath) {
 }
 
 /* ------------------------------------------------------------
+   路径规范化
+   ------------------------------------------------------------
+   同一个目录可能以两种写法出现：
+     D:\BaiduNetdiskDownload\Pixiv\x   （扫描时 path.join 产生的）
+     D:/BaiduNetdiskDownload/Pixiv/x   （前端传进来或 IPC 往返后的）
+   于是 settings 里以路径为 key 的东西（进度、重命名、自定义封面）
+   会「写了却读不到」。统一用本函数归一化后再查表。
+   ------------------------------------------------------------ */
+function normPath(p) {
+  if (!p) return '';
+  let s = String(p).replace(/\\/g, '/');
+  // 去掉末尾多余的斜杠（但要保留盘符后的那个，如 "D:/"）
+  s = s.replace(/\/+$/, '');
+  if (/^[A-Za-z]:$/.test(s)) s += '/';
+  return s;
+}
+
+/** 在某个「路径 → 值」的映射里找 key，容忍分隔符差异 */
+function lookupByPath(map, p) {
+  if (!map || !p) return null;
+  const want = normPath(p).toLowerCase();
+  for (const k of Object.keys(map)) {
+    if (normPath(k).toLowerCase() === want) return k;
+  }
+  return null;
+}
+
+/**
+ * 图片文件 → 封面缩略图 dataURL。
+ * 先用 nativeImage 缩小（快），认不出格式时退回原始字节交给渲染进程。
+ */
+async function imageToThumbDataUrl(filePath) {
+  const img = nativeImage.createFromPath(filePath);
+  if (img.isEmpty()) {
+    // nativeImage 只认 PNG/JPEG/BMP，webp / gif 走这条路
+    return await rawImageDataUrl(filePath);
+  }
+
+  const size = img.getSize();
+  const targetW = 360;
+  const scale = size.width > 0 ? Math.min(1, targetW / size.width) : 1;
+  const thumb = scale < 1
+    ? img.resize({ width: Math.round(size.width * scale), quality: 'good' })
+    : img;
+
+  return thumb.toDataURL({ quality: 80 });
+}
+
+/* ------------------------------------------------------------
    书架缓存：books.json
    ------------------------------------------------------------
    启动时不再扫描目录树，直接读这份缓存渲染书架。
@@ -191,6 +240,7 @@ const DEFAULT_SETTINGS = {
   defaultDirection: 'ltr', // 默认阅读方向：ltr | rtl
   progress: {},            // id -> {mode,page,unit,scroll,lastReadAt}
   renamed: {},             // id -> 自定义书名
+  covers: {},              // id -> 自定义封面图片的绝对路径
 };
 
 function readSettings() {
@@ -525,30 +575,6 @@ async function browseDir(dir) {
 
   const books = [];
 
-  // 这个目录自己就是一本（有图片、没有子目录）
-  if (dirs.length === 0 && images.length > 0) {
-    images.sort((a, b) => naturalCompare(a.name, b.name));
-    const b = await makeFolderBook(dir, images);
-    books.push(b);
-  }
-
-  // 本层散落的压缩包 / PDF
-  for (const f of files) {
-    let st;
-    try { st = await fsp.stat(f.full); } catch (e) { continue; }
-    books.push({
-      id: f.full,
-      title: path.basename(f.name, f.ext),
-      dir: f.full,
-      kind: PDF_EXT.has(f.ext) ? 'pdf' : 'archive',
-      name: f.name,
-      pageCount: 0,
-      bytes: st.size,
-      cover: null,
-      mtime: st.mtimeMs,
-    });
-  }
-
   peeledCards.sort((a, b) => naturalCompare(a.name, b.name));
 
   /* ------------------------------------------------------------
@@ -718,20 +744,31 @@ let win = null;
  */
 function decorateBooks(rawBooks) {
   const settings = readSettings();
-  return rawBooks.map((b) => ({
-    id: b.id,
-    title: settings.renamed[b.id] || b.title,
-    kind: b.kind,
-    pageCount: b.pageCount,
-    bytes: b.bytes,
-    // 缓存里存的是 hasCover 布尔值，原始扫描里是 cover 路径，
-    // 两种形状都要认，否则读缓存时封面标记会变成 false
-    hasCover: b.hasCover !== undefined ? b.hasCover : !!b.cover,
-    path: b.path || b.dir,
-    mtime: b.mtime,
-    progress: settings.progress[b.id] || null,
-    lastReadAt: (settings.progress[b.id] && settings.progress[b.id].lastReadAt) || 0,
-  }));
+  const renamed = settings.renamed || {};
+  const progress = settings.progress || {};
+
+  return rawBooks.map((b) => {
+    // 用归一化路径查表：避免「写入是反斜杠、读取是正斜杠」导致查不到
+    const titleKey = lookupByPath(renamed, b.id);
+    const progKey = lookupByPath(progress, b.id);
+    const prog = progKey ? progress[progKey] : null;
+
+    return {
+      id: b.id,
+      title: (titleKey && renamed[titleKey]) || b.title,
+      kind: b.kind,
+      pageCount: b.pageCount,
+      bytes: b.bytes,
+      // 缓存里存的是 hasCover 布尔值，原始扫描里是 cover 路径，
+      // 两种形状都要认，否则读缓存时封面标记会变成 false
+      hasCover: b.hasCover !== undefined ? b.hasCover : !!b.cover,
+      path: b.path || b.dir,
+      mtime: b.mtime,
+      progress: prog,
+      lastReadAt: (prog && prog.lastReadAt) || 0,
+      versions: b.versions || null,
+    };
+  });
 }
 
 function setupIPC() {
@@ -891,6 +928,17 @@ function setupIPC() {
     try {
       if (!id) return null;
 
+      /* 优先用用户自定义的封面（settings.covers[id]）。
+         自定义封面只记一个图片路径，不复制、不改动你的文件。 */
+      const settings = readSettings();
+      const coverKey = lookupByPath(settings.covers, id);
+      const custom = coverKey ? settings.covers[coverKey] : null;
+      if (custom && fs.existsSync(custom)) {
+        const out = await imageToThumbDataUrl(custom);
+        if (out) return out;
+        // 自定义封面读坏了就继续走默认逻辑，不要因此没有封面
+      }
+
       let coverPath = null;
       const st = await fsp.stat(id).catch(() => null);
       if (!st) return null;
@@ -908,28 +956,55 @@ function setupIPC() {
         return null;
       }
 
-      // nativeImage 做第一道缩小；渲染进程还会用 canvas 再缩一次。
-      // 两道都留着是因为 Windows 上 toDataURL 的 quality 参数
-      // 在部分图片格式下会被忽略，单靠一道不可靠。
-      const img = nativeImage.createFromPath(coverPath);
-      if (img.isEmpty()) {
-        /* nativeImage 认不出 webp / gif（实测这两类都返回空）。
-           这时不要放弃，直接把原始字节转成 dataURL 交给渲染进程——
-           浏览器内核（Chromium）什么格式都能解码，
-           渲染进程那边本来就有 canvas 缩小逻辑兜着。 */
-        return await rawImageDataUrl(coverPath);
-      }
-
-      const size = img.getSize();
-      const targetW = 360;
-      const scale = size.width > 0 ? Math.min(1, targetW / size.width) : 1;
-      const thumb = scale < 1
-        ? img.resize({ width: Math.round(size.width * scale), quality: 'good' })
-        : img;
-
-      return thumb.toDataURL({ quality: 80 });
+      return await imageToThumbDataUrl(coverPath);
     } catch (err) {
       return null;
+    }
+  });
+
+  /* --- 选择自定义封面图片 --- */
+  ipcMain.handle('cover:pick', async (e, id) => {
+    if (!id) return { ok: false, error: '缺少书籍 id' };
+    try {
+      const r = await dialog.showOpenDialog(win, {
+        title: '选择封面图片',
+        properties: ['openFile'],
+        buttonLabel: '就用这张',
+        filters: [
+          { name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif', 'jfif'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+
+      const picked = r.filePaths[0];
+      const settings = readSettings();
+      if (!settings.covers) settings.covers = {};
+      // 先清掉同一个目录的旧写法，避免出现两条指向同一本书的记录
+      const oldKey = lookupByPath(settings.covers, id);
+      if (oldKey && oldKey !== normPath(id)) delete settings.covers[oldKey];
+      settings.covers[normPath(id)] = picked;
+      writeSettings(settings);
+
+      return { ok: true, path: picked };
+    } catch (err) {
+      return { ok: false, error: String(err && err.message || err) };
+    }
+  });
+
+  /* --- 恢复默认封面 --- */
+  ipcMain.handle('cover:reset', async (e, id) => {
+    try {
+      const settings = readSettings();
+      const key = lookupByPath(settings.covers, id);
+      if (key) {
+        delete settings.covers[key];
+        writeSettings(settings);
+        return { ok: true, had: true };
+      }
+      return { ok: true, had: false };
+    } catch (err) {
+      return { ok: false, error: String(err && err.message || err) };
     }
   });
 
@@ -937,14 +1012,19 @@ function setupIPC() {
   ipcMain.handle('progress:set', (e, id, progress) => {
     const s = readSettings();
     if (!s.progress) s.progress = {};
-    s.progress[id] = Object.assign({}, progress, { lastReadAt: Date.now() });
+    // 统一用规范化路径当 key，避免正/反斜杠两种写法各存一份
+    const key = normPath(id);
+    s.progress[key] = Object.assign({}, progress, { lastReadAt: Date.now() });
     writeSettings(s);
     return true;
   });
 
   ipcMain.handle('progress:clear', (e, id) => {
     const s = readSettings();
-    if (s.progress) delete s.progress[id];
+    if (s.progress) {
+      const key = lookupByPath(s.progress, id);
+      if (key) delete s.progress[key];
+    }
     writeSettings(s);
     return true;
   });
@@ -953,7 +1033,7 @@ function setupIPC() {
   ipcMain.handle('book:rename', (e, id, name) => {
     const s = readSettings();
     if (!s.renamed) s.renamed = {};
-    s.renamed[id] = name;
+    s.renamed[normPath(id)] = name;
     writeSettings(s);
     return true;
   });

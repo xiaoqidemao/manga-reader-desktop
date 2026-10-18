@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('mangaHost', {
   readBytes: (filePath) => ipcRenderer.invoke('file:readBytes', filePath),
   getDims: (filePath) => ipcRenderer.invoke('page:dims', filePath),
   getCover: (id) => ipcRenderer.invoke('cover:get', id),
+  pickCover: (id) => ipcRenderer.invoke('cover:pick', id),
+  resetCover: (id) => ipcRenderer.invoke('cover:reset', id),
 
   /* 进度 */
   saveProgress: (id, progress) => ipcRenderer.invoke('progress:set', id, progress),

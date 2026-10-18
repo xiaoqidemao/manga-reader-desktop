@@ -445,6 +445,36 @@ const DB = {
     return host.getCover(id);
   },
 
+  /** 选择一张图片作为这本书的封面（只记路径，不动你的文件） */
+  async pickCover(id) {
+    ensureHost();
+    if (!id) return { ok: false, error: '缺少书籍 id' };
+    const r = await host.pickCover(id);
+    if (r && r.ok) {
+      // 设置里多了一条 covers，同步到内存，方便界面判断
+      if (settings) {
+        if (!settings.covers) settings.covers = {};
+        settings.covers[id] = r.path;
+      }
+    }
+    return r;
+  },
+
+  /** 恢复默认封面（回到目录里的第一张图） */
+  async resetCover(id) {
+    ensureHost();
+    if (!id) return { ok: false, error: '缺少书籍 id' };
+    const r = await host.resetCover(id);
+    if (settings && settings.covers) delete settings.covers[id];
+    return r;
+  },
+
+  /** 这本书有没有自定义封面 */
+  hasCustomCover(id) {
+    const s = settings || {};
+    return !!(s.covers && s.covers[id]);
+  },
+
   /** PDF/压缩包页数（会触发一次解析，结果留在缓存复用） */
   async getArchivePageCount(id) {
     ensureHost();

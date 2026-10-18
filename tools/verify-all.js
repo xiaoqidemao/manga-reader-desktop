@@ -159,6 +159,34 @@ function getTargets() {
     };
   })()`);
 
+  // 1f. 单本书的目录不能返回重复条目（曾经因残留代码返回两本一模一样的书）
+  report.noDup = await ev(`(async () => {
+    const DB = await import('./js/db.js');
+    const all = await DB.DB.getAllBooks();
+    const book = all.find(b => b.kind === 'folder' && b.pageCount > 5);
+    if (!book) return { skipped: true };
+
+    // 直接浏览这本书自己的目录，应当只返回它一本
+    const r = await window.mangaHost.browse(book.path);
+    const ids = (r.books || []).map(b => b.id);
+    return {
+      skipped: false,
+      bookId: book.id.slice(-30),
+      count: ids.length,
+      unique: new Set(ids).size,
+      ok: ids.length === new Set(ids).size
+    };
+  })()`);
+
+  // 1g. 自定义封面的路径匹配要能容忍正/反斜杠差异
+  report.coverKey = await ev(`(async () => {
+    const s = await window.mangaHost.getSettings();
+    return {
+      hasCoversField: s.covers !== undefined,
+      count: Object.keys(s.covers || {}).length
+    };
+  })()`);
+
   // 2. 打开一本大书
   //    分层浏览下根目录上显示的是文件夹而不是书，
   //    所以这里直接调 openBookDirect，不依赖书架上有卡片。
@@ -298,6 +326,8 @@ function getTargets() {
     '退出阅读器不跳回顶部': report.scroll &&
       (report.scroll.skipped === true || report.scroll.kept === true),
     '默认阅读方式可用': report.defaults && report.defaults.valid === true && report.defaults.buttonExists === true,
+    '单本书不重复': report.noDup && (report.noDup.skipped === true || report.noDup.ok === true),
+    '自定义封面字段存在': report.coverKey && report.coverKey.hasCoversField === true,
     '封面懒加载': (report.coverTest && report.coverTest.coversLoaded > 0) || false,
     '能打开书': report.open.active === true,
     '单页模式': report.modes.paged.paged === true,

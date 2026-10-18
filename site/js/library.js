@@ -1192,11 +1192,7 @@ export function initLibrary(opts = {}) {
   const emptyCta = document.getElementById('btn-import-empty');
   if (emptyCta) emptyCta.onclick = () => chooseFolder();
 
-  const fab = document.getElementById('fab-import');
-  if (fab) {
-    fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>换文件夹</span>';
-    fab.onclick = () => chooseFolder();
-  }
+  // 换文件夹的入口：顶栏「文件夹」按钮 与 Ctrl+O（右下角悬浮按钮已按需求移除）
 
   // Alt+← / Backspace：返回上一层（阅读器打开时不抢键）
   window.addEventListener('keydown', (e) => {

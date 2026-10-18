@@ -388,36 +388,113 @@ async function browseDir(dir) {
     else if (ARCHIVE_EXT.has(ext) || PDF_EXT.has(ext)) files.push({ name, full, ext });
   }
 
-  // 并行数各子文件夹的项数，用来在卡片上显示「N 项」
+  // 并行分析各子文件夹，用来在卡片上显示「N 项」，并判断它是不是书
   const dirCards = await Promise.all(dirs.map(async (d) => {
     const n = await countEntries(d.full);
-    // 看它是不是一本（只有图片）
-    let isBook = false;
+
+    let isBook = false;          // 只有图片 → 本身是一本书
     let pageCount = 0;
+    let onlyChild = null;        // 只包着唯一一个子目录（空壳层）
+
     if (n > 0) {
       try {
         const sub = await fsp.readdir(d.full, { withFileTypes: true });
         let hasSubdir = false;
         let imgCount = 0;
+        const subDirs = [];
+
         for (const e of sub) {
           if (e.name.startsWith('.')) continue;
           if (SKIP_DIR.has(e.name)) continue;
-          if (e.isDirectory()) { hasSubdir = true; break; }
-          const ex = path.extname(e.name).toLowerCase();
-          if (IMG_EXT.has(ex)) imgCount++;
+          if (e.isDirectory()) { hasSubdir = true; subDirs.push(e); }
+          else {
+            const ex = path.extname(e.name).toLowerCase();
+            if (IMG_EXT.has(ex)) imgCount++;
+          }
         }
-        if (!hasSubdir && imgCount > 0) { isBook = true; pageCount = imgCount; }
+
+        if (!hasSubdir && imgCount > 0) {
+          isBook = true;
+          pageCount = imgCount;
+        }
+
+        /* 空壳层：只有一个子目录、自己一张图都没有。
+           典型如 qqqpppqpqpqp 下的「25.01.05 / 25.01.05 蛾娘航线」——
+           外层只是容器，真正的书在里层。这种层直接穿透，
+           否则书架会多出一层毫无意义的点击。 */
+        if (hasSubdir && imgCount === 0 && subDirs.length === 1) {
+          onlyChild = subDirs[0].name;
+        }
       } catch (e) { /* 忽略 */ }
     }
+
     return {
       type: 'dir',
       name: d.name,
       path: d.full,
       entryCount: n,
-      isBook,          // 既是文件夹又是书 → 双击进、也能直接打开
+      isBook,
       pageCount,
+      onlyChild,
     };
   }));
+
+  /* ------------------------------------------------------------
+     穿透空壳：把「只包一层的容器目录」替换成它里面的真实书籍。
+     例如 25.01.05（里面只有 25.01.05 蛾娘航线）→ 直接展示后者。
+     多层嵌套也支持（最多穿 3 层，防止病态结构）。
+     ------------------------------------------------------------ */
+  const MAX_PEEL = 3;
+
+  async function peel(d) {
+    let cur = d;
+    let depth = 0;
+    while (cur.onlyChild && depth < MAX_PEEL) {
+      const childPath = path.join(cur.path, cur.onlyChild);
+      const sub = await fsp.readdir(childPath, { withFileTypes: true }).catch(() => null);
+      if (!sub) break;
+
+      let img = 0;
+      let onlyDir = null;
+      let dirCount = 0;
+      for (const e of sub) {
+        if (e.name.startsWith('.')) continue;
+        if (SKIP_DIR.has(e.name)) continue;
+        if (e.isDirectory()) { dirCount++; onlyDir = e.name; }
+        else if (IMG_EXT.has(path.extname(e.name).toLowerCase())) img++;
+      }
+
+      // 里层只有图片 → 它就是书
+      if (dirCount === 0 && img > 0) {
+        return {
+          ...d,                       // 名字仍用外层（通常更完整、带日期）
+          path: childPath,
+          innerName: cur.onlyChild,
+          isBook: true,
+          pageCount: img,
+          onlyChild: null,
+        };
+      }
+
+      // 里层还是唯一一层 → 继续往下穿
+      if (dirCount === 1 && img === 0) {
+        cur = { ...cur, path: childPath, onlyChild: onlyDir };
+        depth++;
+        continue;
+      }
+
+      // 里层结构复杂，放弃穿透，保持原样
+      break;
+    }
+    return cur;
+  }
+
+  const peeledCards = [];
+  for (const d of dirCards) {
+    if (d.isBook) { peeledCards.push(d); continue; }
+    if (!d.onlyChild) { peeledCards.push(d); continue; }
+    peeledCards.push(await peel(d));
+  }
 
   const books = [];
 
@@ -445,40 +522,45 @@ async function browseDir(dir) {
     });
   }
 
-  dirCards.sort((a, b) => naturalCompare(a.name, b.name));
+  peeledCards.sort((a, b) => naturalCompare(a.name, b.name));
 
   /* ------------------------------------------------------------
-     自动折叠：这一层如果「绝大多数」子文件夹都是书，
-     就直接把它们当书展示，省掉多余的一层点击。
+     自动折叠：这一层如果绝大部分条目都是书，就直接展示封面。
 
-     判定不能只看比例，要看「非书目录有几个」：
-       · 超高校级的幸运币：38 本书 + 1 个例外（97%）→ 值得折叠
-       · 龙裔小金鱼：174 本书 + 空目录 + 1 个分组（99%）→ 值得折叠
-       · qqqpppqpqpqp：94 本书 + 21 个日期分组（82%）
-         ——比例也高，但那 21 个是真实的层级结构，
-            折叠后会把「按日期分组」的组织方式打散，所以不折。
+     穿透空壳之后（见上面的 peel），qqqpppqpqpqp 的 21 个
+     「只包一层」容器已变成书，于是它也能整体折叠了。
 
-     规则：
-       · 非书目录 ≤ 2 个，且书数 ≥ 3 → 折叠
-       · 折叠后，那 1~2 个例外仍以文件夹卡片混排（可继续双击进去）
-       · 本层散落的 zip/pdf 也照常显示为书
+     仍保留「非书 ≤ 2」的宽松限制：留一两个真正需要进去的
+     目录（比如「无字」这种装了多本书的分组）不影响整体折叠。
      ------------------------------------------------------------ */
-  const bookDirs = dirCards.filter((d) => d.isBook);
-  const nonBookDirs = dirCards.filter((d) => !d.isBook);
+  const bookDirs = peeledCards.filter((d) => d.isBook);
+  const nonBookDirs = peeledCards.filter((d) => !d.isBook);
   const collapsed = bookDirs.length >= 3 && nonBookDirs.length <= 2;
 
-  /** 把「只有图片」的目录转成书籍对象 */
-  const dirAsBook = (d) => ({
-    id: d.path,
-    title: titleFor(d.path),
-    dir: d.path,
-    kind: 'folder',
-    name: d.name,
-    pageCount: d.pageCount,
-    bytes: 0,
-    cover: null,
-    mtime: 0,
-  });
+  /** 把「只有图片」的目录转成书籍对象（含穿透后的） */
+  const dirAsBook = (d) => {
+    // 穿透后书名取「外层名」和「内层名」里更长的那个：
+    //   「25.01.05」→「25.01.05 蛾娘航线」 内层更全，用好内层
+    //   「淫堕航线15」→「birme-1248x1800」  内层是乱码目录名，用外层
+    let title = d.name;
+    if (d.innerName) {
+      const outer = (d.name || '').trim();
+      const inner = (d.innerName || '').trim();
+      title = inner.length > outer.length ? inner : outer;
+    }
+    return {
+      id: d.path,
+      title,
+      dir: d.path,
+      kind: 'folder',
+      name: d.name,
+      pageCount: d.pageCount,
+      bytes: 0,
+      cover: null,
+      mtime: 0,
+      peeledFrom: d.innerName || null,   // 记录是从哪一层穿出来的
+    };
+  };
 
   if (collapsed) {
     const asBooks = bookDirs.map(dirAsBook);
@@ -543,7 +625,7 @@ async function browseDir(dir) {
     ok: true,
     dir: dir,
     entryCount,
-    dirs: dirCards,
+    dirs: peeledCards,
     books: decorateBooks(books),
     collapsed: false,
   };

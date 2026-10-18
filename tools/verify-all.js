@@ -135,11 +135,12 @@ function getTargets() {
   })()`);
 
   // 3. 四种模式
+  //    长卷要建全部格子（2000 页的书尤其慢），等待时间给足。
   report.modes = await ev(`(async () => {
     const out = {};
     for (const m of ['paged','spread','webtoon','strip']) {
       document.querySelector('[data-mode=' + m + ']').click();
-      await new Promise(r => setTimeout(r, 1800));
+      await new Promise(r => setTimeout(r, m === 'strip' ? 4500 : 2000));
       out[m] = {
         paged: document.getElementById('stage-paged').classList.contains('is-show'),
         webtoon: document.getElementById('stage-webtoon').classList.contains('is-show'),

@@ -8,7 +8,7 @@
    ============================================================ */
 
 import { DB } from './db.js';
-import { initLibrary, reloadLibrary, chooseFolder, rescan, renderLibrary, showScanning, showCacheNotice } from './library.js';
+import { initLibrary, reloadLibrary, chooseFolder, rescan, renderLibrary, showScanning, showCacheNotice, enterRoot } from './library.js';
 import { initReader, openBook, applyTheme, attachScroll } from './reader.js';
 import { toast } from './ui.js';
 
@@ -49,32 +49,17 @@ async function main() {
     return;
   }
 
-  /* --- 已有根目录：先尝试读缓存，秒开书架 ---
-     只有「没有缓存」「换了根目录」才真正扫描。
-     想强制重扫：点右上角刷新（或 Ctrl+R）。 */
-  const cached = await DB.loadCache();
+  /* --- 已有根目录：分层浏览，只读根目录这一层 ---
+     不再扫描整个目录树，也不再依赖 books.json 才能显示。
+     进软件只读 1 个目录（毫秒级），点进哪个文件夹才读哪个。
+     想全量重扫：点右上角刷新（或 Ctrl+R）。 */
+  await enterRoot(settings.rootDir);
 
-  if (cached.ok) {
-    renderLibrary(cached.books);
-    showCacheNotice(cached.scannedAt);
-    if (!cached.books.length) {
-      toast('这个文件夹里没找到漫画', 3200);
-    }
-  } else {
-    // 没有缓存 / 缓存失效 → 老老实实扫一次
-    showScanning(settings.rootDir);
-    const result = await DB.scan();
-    if (result.ok) {
-      renderLibrary(result.books);
-      showCacheNotice(Date.now());
-      if (result.total === 0) {
-        toast('这个文件夹里没找到漫画', 3200);
-      }
-    } else {
-      renderLibrary([]);
-      toast('扫描失败：' + (result.reason || '未知错误'), 4200);
-    }
-  }
+  // 缓存时间提示：有缓存就显示上次全量扫描时间
+  try {
+    const cachedInfo = await DB.loadCache();
+    if (cachedInfo.ok) showCacheNotice(cachedInfo.scannedAt);
+  } catch (e) { /* 没有缓存也无所谓，分层浏览不依赖它 */ }
 
   /* --- 快捷键：Ctrl+O 换文件夹，Ctrl+R 重新扫描 --- */
   window.addEventListener('keydown', (e) => {

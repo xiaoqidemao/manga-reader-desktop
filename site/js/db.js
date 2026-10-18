@@ -256,6 +256,21 @@ const DB = {
     return { ok: true, books, ms: res.ms, total: res.total };
   },
 
+  /**
+   * 分层浏览：只读一层目录，不递归、不扫描全书架。
+   * 返回 { ok, dirs:[{name,path,entryCount,isBook,pageCount}], books:[...] }
+   */
+  async browse(dir) {
+    ensureHost();
+    const target = dir || (settings && settings.rootDir);
+    if (!target) return { ok: false, reason: 'no-root', dirs: [], books: [] };
+    const res = await host.browse(target);
+    if (!res || !res.ok) {
+      return { ok: false, reason: (res && res.error) || 'browse-failed', dirs: [], books: [] };
+    }
+    return res;
+  },
+
   getScanInfo() {
     return lastScan;
   },

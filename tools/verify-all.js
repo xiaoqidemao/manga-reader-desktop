@@ -50,21 +50,52 @@ function getTargets() {
   const report = {};
 
   // 1. 书架
+  //    分层浏览后，根目录显示的是文件夹卡片，不是书。
+  //    所以「书架有内容」= 文件夹卡片 + 书卡片，两者都算；
+  //    封面懒加载只在有书卡片时才检查。
   report.shelf = await ev(`({
     cards: document.querySelectorAll('.card').length,
+    dirCards: document.querySelectorAll('.card-dir').length,
+    bookCards: document.querySelectorAll('.card:not(.card-dir)').length,
     countText: document.getElementById('lib-count').textContent,
-    coversLoaded: document.querySelectorAll('.card-cover img').length
+    coversLoaded: document.querySelectorAll('.card-cover img').length,
+    crumbs: document.getElementById('lib-crumbs') ?
+      document.getElementById('lib-crumbs').textContent.trim() : ''
   })`);
 
+  // 1b. 封面懒加载
+  //     分层浏览下，书的「父目录」通常只含这一本书，
+  //     进去后显示的就是 1 张书卡片。只要能读到封面图就算通过。
+  report.coverTest = await ev(`(async () => {
+    const DB = await import('./js/db.js');
+    const L = await import('./js/library.js');
+    const all = await DB.DB.getAllBooks();
+    const book = all.find(b => b.kind === 'folder' && b.pageCount > 5);
+    if (!book) return { skipped: true, coversLoaded: 0 };
+
+    // book.path 就是书目录本身，直接进去（不要再截掉一级）
+    const dir = book.path;
+    await L.navigateTo(dir);
+    await new Promise(r => setTimeout(r, 2600));
+
+    return {
+      skipped: false,
+      dir,
+      bookCards: document.querySelectorAll('.card:not(.card-dir)').length,
+      coversLoaded: document.querySelectorAll('.card-cover img').length,
+      crumb: document.getElementById('lib-crumbs').textContent.trim()
+    };
+  })()`);
+
   // 2. 打开一本大书
+  //    分层浏览下根目录上显示的是文件夹而不是书，
+  //    所以这里直接调 openBookDirect，不依赖书架上有卡片。
   report.open = await ev(`(async () => {
     const DB = await import('./js/db.js');
     const L = await import('./js/library.js');
     const books = await DB.DB.getAllBooks();
     const big = books.filter(b => b.pageCount > 100).sort((a,b) => b.pageCount - a.pageCount)[0];
-    L.renderLibrary([big]);
-    await new Promise(r => setTimeout(r, 400));
-    document.querySelector('.card').click();
+    await L.openBookDirect(big);
     await new Promise(r => setTimeout(r, 1800));
     return {
       title: document.getElementById('rd-title').textContent,
@@ -164,8 +195,10 @@ function getTargets() {
 
   // 总结
   const ok = {
-    '书架有书': report.shelf.cards > 0,
-    '封面懒加载': report.shelf.coversLoaded > 0,
+    '书架有内容': report.shelf.cards > 0,
+    '分层：根目录是文件夹': report.shelf.dirCards > 0,
+    '面包屑正常': /书架/.test(report.shelf.crumbs || ''),
+    '封面懒加载': (report.coverTest && report.coverTest.coversLoaded > 0) || false,
     '能打开书': report.open.active === true,
     '单页模式': report.modes.paged.paged === true,
     '跨页模式': report.modes.spread.paged === true,

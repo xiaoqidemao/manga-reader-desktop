@@ -313,6 +313,148 @@ async function runPool(items, limit, fn) {
   await Promise.all(workers);
 }
 
+/* ------------------------------------------------------------
+   分层浏览：只读一层
+   ------------------------------------------------------------
+   与 scanRoot 的区别：这里绝不递归。
+   返回 { dirs: [...子文件夹], books: [...本层的书] }，
+   子文件夹只给名字和「里面有多少项」，不进去读图、不做封面。
+
+   这是为了「进软件不卡」：根目录只有 7 个文件夹，
+   读一层是毫秒级；而全量扫描要遍历 519 个目录。
+   ------------------------------------------------------------ */
+
+/**
+ * 数一个目录里有多少个子项（只数，不下钻）。
+ * 用于文件夹卡片上显示「89 项」。
+ * 失败返回 -1（无权限等），前端显示为未知。
+ */
+async function countEntries(dir) {
+  try {
+    const es = await fsp.readdir(dir, { withFileTypes: true });
+    let n = 0;
+    for (const e of es) {
+      if (e.name.startsWith('.')) continue;
+      if (SKIP_DIR.has(e.name)) continue;
+      n++;
+    }
+    return n;
+  } catch (e) {
+    return -1;
+  }
+}
+
+/**
+ * 判断一个目录「自己」是不是一本书（只有图片、没有子目录）。
+ * 同时返回子目录列表和本层散落的 zip/pdf。
+ */
+async function browseDir(dir) {
+  const dirs = [];
+  const images = [];
+  const files = [];
+  let entryCount = 0;
+
+  let entries;
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch (e) {
+    return { ok: false, error: '无法读取这个文件夹（可能是权限问题）', dirs: [], books: [] };
+  }
+
+  for (const ent of entries) {
+    const name = ent.name;
+    if (name.startsWith('.')) continue;
+    if (SKIP_DIR.has(name)) continue;
+
+    const full = path.join(dir, name);
+    entryCount++;
+
+    let isDir = ent.isDirectory();
+    let isFile = ent.isFile();
+
+    if (ent.isSymbolicLink()) {
+      try {
+        const st = await fsp.stat(full);
+        isDir = st.isDirectory();
+        isFile = st.isFile();
+      } catch (e) { continue; }
+    }
+
+    if (isDir) { dirs.push({ name, full }); continue; }
+    if (!isFile) continue;
+
+    const ext = path.extname(name).toLowerCase();
+    if (IMG_EXT.has(ext)) images.push({ name, full, ext });
+    else if (ARCHIVE_EXT.has(ext) || PDF_EXT.has(ext)) files.push({ name, full, ext });
+  }
+
+  // 并行数各子文件夹的项数，用来在卡片上显示「N 项」
+  const dirCards = await Promise.all(dirs.map(async (d) => {
+    const n = await countEntries(d.full);
+    // 看它是不是一本（只有图片）
+    let isBook = false;
+    let pageCount = 0;
+    if (n > 0) {
+      try {
+        const sub = await fsp.readdir(d.full, { withFileTypes: true });
+        let hasSubdir = false;
+        let imgCount = 0;
+        for (const e of sub) {
+          if (e.name.startsWith('.')) continue;
+          if (SKIP_DIR.has(e.name)) continue;
+          if (e.isDirectory()) { hasSubdir = true; break; }
+          const ex = path.extname(e.name).toLowerCase();
+          if (IMG_EXT.has(ex)) imgCount++;
+        }
+        if (!hasSubdir && imgCount > 0) { isBook = true; pageCount = imgCount; }
+      } catch (e) { /* 忽略 */ }
+    }
+    return {
+      type: 'dir',
+      name: d.name,
+      path: d.full,
+      entryCount: n,
+      isBook,          // 既是文件夹又是书 → 双击进、也能直接打开
+      pageCount,
+    };
+  }));
+
+  const books = [];
+
+  // 这个目录自己就是一本（有图片、没有子目录）
+  if (dirs.length === 0 && images.length > 0) {
+    images.sort((a, b) => naturalCompare(a.name, b.name));
+    const b = await makeFolderBook(dir, images);
+    books.push(b);
+  }
+
+  // 本层散落的压缩包 / PDF
+  for (const f of files) {
+    let st;
+    try { st = await fsp.stat(f.full); } catch (e) { continue; }
+    books.push({
+      id: f.full,
+      title: path.basename(f.name, f.ext),
+      dir: f.full,
+      kind: PDF_EXT.has(f.ext) ? 'pdf' : 'archive',
+      name: f.name,
+      pageCount: 0,
+      bytes: st.size,
+      cover: null,
+      mtime: st.mtimeMs,
+    });
+  }
+
+  dirCards.sort((a, b) => naturalCompare(a.name, b.name));
+  return {
+    ok: true,
+    dir: dir,
+    entryCount,
+    dirs: dirCards,
+    books: decorateBooks(books),
+  };
+}
+
 /**
  * 给一本书取显示名。
  * 「卷一」「卷二」「Vol.1」这类重名太多，补上上级作品名。
@@ -449,6 +591,21 @@ function setupIPC() {
       ms: cache.scanMs || 0,
       total: out.length,
     };
+  });
+
+  /* --- 分层浏览：只读一层，不递归 --- */
+  ipcMain.handle('library:browse', async (e, dir) => {
+    if (!dir || !fs.existsSync(dir)) {
+      return { ok: false, error: '文件夹不存在或无法访问', dirs: [], books: [] };
+    }
+    const t0 = Date.now();
+    try {
+      const r = await browseDir(dir);
+      if (r.ok) r.ms = Date.now() - t0;
+      return r;
+    } catch (err) {
+      return { ok: false, error: String(err && err.message || err), dirs: [], books: [] };
+    }
   });
 
   /* --- 取一本书的完整页列表 --- */

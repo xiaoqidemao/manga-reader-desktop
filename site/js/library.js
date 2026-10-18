@@ -2,10 +2,16 @@
    library.js · 书库页（桌面版）
    ------------------------------------------------------------
    与网页版的区别：
-     - 不再「导入」，改成「选一个漫画文件夹」后自动扫描
+     - 不再「导入」，改成「选一个漫画文件夹」后直接读磁盘
      - 封面来自磁盘真实文件，滚动到才加载
      - 删除 = 只删进度，不碰磁盘
-     - 增加「刷新」，扫描完成后重新读目录
+     - 增加「刷新」，重新扫描并更新缓存
+
+   v1.1 改动：分层浏览
+     - 书架不再一次性铺开全部书，而是「一层一层进」
+     - 根目录显示子文件夹；双击进入后显示下一层
+     - 目录本身就是一本（只有图片）时，也会作为书出现
+     - 顶部面包屑可点回任意层级，Alt+← / Backspace 回上级
    ============================================================ */
 
 import { DB } from './db.js';
@@ -15,12 +21,30 @@ let onOpenBook = null;
 let allBooks = [];
 let io = null;
 
+/* ---------------- 分层浏览状态 ---------------- */
+
+const BROWSE = {
+  rootDir: '',        // 漫画根目录（来自设置）
+  path: '',           // 当前所在目录（绝对路径）
+  dirs: [],           // 当前层的子文件夹
+  books: [],          // 当前层的书
+  trail: [],          // 面包屑：[{name, path}, ...]，trail[0] 恒为根
+  loading: false,
+};
+
+/** 当前是否在根目录 */
+function atRoot() {
+  return !BROWSE.path || BROWSE.path === BROWSE.rootDir;
+}
+
 function els() {
   return {
     grid: document.getElementById('lib-grid'),
     empty: document.getElementById('lib-empty'),
     count: document.getElementById('lib-count'),
     stage: document.getElementById('lib-stage'),
+    crumbs: document.getElementById('lib-crumbs'),
+    back: document.getElementById('lib-back'),
   };
 }
 
@@ -224,6 +248,26 @@ function cardHTML(b) {
   </div>`;
 }
 
+/* ---------------- 文件夹卡片 ---------------- */
+
+/**
+ * 文件夹层不读任何图片，只显示：纯色块 + 文件夹图标 + 名称。
+ * 这样即使目录里有几百个子文件夹，也不需要打开任何文件。
+ */
+function dirCardHTML(d) {
+  const meta = d.entryCount > 0
+    ? `${d.entryCount} 项${d.isBook ? ' · 可直接阅读' : ''}`
+    : (d.entryCount === 0 ? '空文件夹' : '无法读取');
+
+  return `<div class="card card-dir" data-dir="${escapeAttr(d.path)}" title="${escapeAttr(d.path)}">
+    <div class="card-cover dir-cover">
+      <div class="dir-glyph">${icon('folder')}</div>
+    </div>
+    <div class="card-title">${escapeHTML(d.name)}</div>
+    <div class="card-meta">${escapeHTML(meta)}</div>
+  </div>`;
+}
+
 function cssEscape(s) {
   return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/"/g, '\\"');
 }
@@ -251,7 +295,26 @@ export function renderLibrary(books) {
 
   pruneCovers(allBooks);
 
-  if (!allBooks.length) {
+  // 兼容旧调用：只给书、不给文件夹时，文件夹层为空
+  BROWSE.books = allBooks;
+  if (!BROWSE.dirs) BROWSE.dirs = [];
+
+  renderCurrentView();
+}
+
+/**
+ * 按当前浏览状态渲染：先文件夹，后书。
+ * 文件夹层不需要读任何图片，所以即使有几百个目录也是瞬间完成。
+ */
+function renderCurrentView() {
+  const { grid, empty, count } = els();
+  const dirs = BROWSE.dirs || [];
+  const books = BROWSE.books || [];
+
+  renderCrumbs();
+
+  const total = dirs.length + books.length;
+  if (!total) {
     grid.innerHTML = '';
     grid.classList.add('hidden');
     empty.classList.add('is-show');
@@ -262,22 +325,85 @@ export function renderLibrary(books) {
 
   grid.classList.remove('hidden');
   empty.classList.remove('is-show');
-  if (count) count.textContent = `${allBooks.length} 本`;
 
-  grid.innerHTML = allBooks.map(cardHTML).join('');
+  // 数量提示：文件夹和书分开说清楚
+  if (count) {
+    const parts = [];
+    if (dirs.length) parts.push(`${dirs.length} 个文件夹`);
+    if (books.length) parts.push(`${books.length} 本`);
+    count.textContent = parts.join(' · ');
+  }
 
-  grid.querySelectorAll('.card').forEach((el) => {
-    const book = allBooks.find((b) => b.id === el.dataset.id);
+  const dirHTML = dirs.map(dirCardHTML).join('');
+  const bookHTML = books.map(cardHTML).join('');
+  grid.innerHTML = dirHTML + bookHTML;
+
+  // 文件夹卡片：双击进入；本身就是书时，单击直接阅读
+  grid.querySelectorAll('.card-dir').forEach((el) => {
+    const d = dirs.find((x) => x.path === el.dataset.dir);
+    if (!d) return;
+    bindDirCard(el, d);
+  });
+
+  // 书卡片：单击打开
+  grid.querySelectorAll('.card:not(.card-dir)').forEach((el) => {
+    const book = books.find((b) => b.id === el.dataset.id);
     if (book) bindCard(el, book);
   });
 
-  allBooks.forEach((b) => {
+  books.forEach((b) => {
     const el = grid.querySelector(`.card[data-id="${cssEscape(b.id)}"] .card-cover`);
     if (el) el.dataset.coverId = b.id;
   });
 
+  // 只给书挂封面观察器；文件夹不需要读图
   observeCovers();
-  grid.querySelectorAll('.card-cover').forEach((c) => io && io.observe(c));
+  grid.querySelectorAll('.card:not(.card-dir) .card-cover').forEach((c) => io && io.observe(c));
+
+  // 回到顶部，换目录后从第一屏开始
+  const stage = els().stage;
+  if (stage) stage.scrollTop = 0;
+}
+
+/* ---------------- 面包屑 ---------------- */
+
+function renderCrumbs() {
+  const { crumbs, back } = els();
+  if (!crumbs) return;
+
+  const parts = ['<h1 class="crumb-root" data-crumb-root="1">书架</h1>'];
+
+  // trail[0] 是根目录，从它开始逐级展开
+  BROWSE.trail.forEach((node, i) => {
+    const isLast = i === BROWSE.trail.length - 1;
+    parts.push('<span class="crumb-sep">›</span>');
+    if (isLast) {
+      parts.push(`<span class="crumb-cur" title="${escapeAttr(node.path)}">${escapeHTML(node.name)}</span>`);
+    } else {
+      parts.push(`<button class="crumb" data-crumb-i="${i}" title="${escapeAttr(node.path)}">${escapeHTML(node.name)}</button>`);
+    }
+  });
+
+  crumbs.innerHTML = parts.join('');
+
+  // 点面包屑跳回任意层级
+  crumbs.querySelectorAll('.crumb').forEach((btn) => {
+    btn.onclick = () => {
+      const i = Number(btn.dataset.crumbI);
+      const node = BROWSE.trail[i];
+      if (node) navigateTo(node.path);
+    };
+  });
+
+  const rootBtn = crumbs.querySelector('.crumb-root');
+  if (rootBtn) {
+    rootBtn.onclick = () => {
+      if (BROWSE.trail.length) navigateTo(BROWSE.trail[0].path);
+    };
+  }
+
+  // 不在根目录时显示返回键
+  if (back) back.hidden = BROWSE.trail.length <= 1;
 }
 
 /** 空书架时，按当前状态显示不同引导 */
@@ -359,15 +485,25 @@ function hideScanning() {
   if (el) el.classList.remove('is-show');
 }
 
+/**
+ * 从阅读器返回书架时调用。
+ * 分层浏览下不能再用 getAllBooks()（那会触发全量扫描），
+ * 而是重新读当前所在层，保留位置。
+ */
 async function reload() {
-  const books = await DB.getAllBooks();
-  renderLibrary(books);
-  return books;
+  if (BROWSE.path) {
+    await navigateTo(BROWSE.path);
+  } else {
+    renderCurrentView();
+  }
+  return BROWSE.books;
 }
 
 export { reload as reloadLibrary };
 
-/** 全量重新扫描（用户点刷新 / 改目录后） */
+/** 全量重新扫描（用户点刷新 / 改目录后）
+    刷新只更新「全书缓存」与统计，界面仍停留在当前目录，
+    不会把你踢回根目录。 */
 export async function rescan() {
   const s = DB.getSettings() || {};
   if (!s.rootDir) {
@@ -378,18 +514,22 @@ export async function rescan() {
   showScanning(s.rootDir);
   try {
     const r = await DB.scan();
-    const books = r.ok ? r.books : [];
-    renderLibrary(books);
     if (r.ok) showCacheNotice(Date.now());
 
     if (r.ok) {
-      toast(`扫描完成 · ${books.length} 本 · 用时 ${(r.ms / 1000).toFixed(1)} 秒`, 2600);
+      // 扫完回到当前所在层重新读一次，保持位置不变
+      const target = BROWSE.path || s.rootDir;
+      await navigateTo(target);
+      toast(`扫描完成 · 全书架 ${r.total} 本 · 用时 ${(r.ms / 1000).toFixed(1)} 秒`, 2800);
     } else {
+      hideScanning();
+      renderCurrentView();
       toast('扫描失败：' + r.reason, 3400);
     }
-    return books;
+    return r.ok ? r.books : [];
   } catch (err) {
-    renderLibrary([]);
+    hideScanning();
+    renderCurrentView();
     toast('扫描失败：' + (err.message || err), 3400);
     return [];
   }
@@ -447,6 +587,168 @@ async function showBookMenu(book) {
   }
 }
 
+/* ---------------- 分层导航 ---------------- */
+
+/**
+ * 进入某个目录（只读这一层）。
+ * 面包屑 trail 同步维护：从根到当前路径。
+ */
+export async function navigateTo(dirPath) {
+  if (!dirPath || BROWSE.loading) return;
+
+  const root = BROWSE.rootDir;
+  if (!root) return;
+
+  // 不允许跑到根目录外面去
+  const norm = (p) => String(p).replace(/[\\/]+/g, '/').replace(/\/+$/, '');
+  const nRoot = norm(root);
+  const nDir = norm(dirPath);
+  if (nDir !== nRoot && !nDir.toLowerCase().startsWith(nRoot.toLowerCase() + '/')) {
+    toast('不能浏览漫画根目录之外的位置', 2600);
+    return;
+  }
+
+  BROWSE.loading = true;
+  showBrowsing(dirPath);
+
+  try {
+    const r = await DB.browse(dirPath);
+    if (!r.ok) {
+      toast('打开文件夹失败：' + (r.reason || '未知错误'), 3400);
+      renderCurrentView();
+      return;
+    }
+
+    BROWSE.path = dirPath;
+    BROWSE.dirs = r.dirs || [];
+    BROWSE.books = sortBooks(r.books || [], getSort());
+    allBooks = BROWSE.books;
+
+    // 重建面包屑：根目录名 + 相对路径的每一段
+    BROWSE.trail = buildTrail(root, dirPath);
+
+    hideScanning();
+    renderCurrentView();
+    updateWindowTitle();
+  } finally {
+    BROWSE.loading = false;
+    hideBrowsing();
+  }
+}
+
+/** 根据根目录和目标目录，算出面包屑的每一级 */
+function buildTrail(root, dirPath) {
+  const trail = [];
+  const norm = (p) => String(p).replace(/[\\/]+/g, '/').replace(/\/+$/, '');
+  const nRoot = norm(root);
+  const nDir = norm(dirPath);
+
+  const rootName = nRoot.split('/').pop() || nRoot;
+  trail.push({ name: rootName, path: root });
+  if (nDir === nRoot) return trail;
+
+  const rest = nDir.slice(nRoot.length).replace(/^\/+/, '');
+  if (!rest) return trail;
+
+  const segs = rest.split('/');
+  let acc = root;
+  for (const seg of segs) {
+    acc = acc.replace(/[\\/]+$/, '') + '\\' + seg;
+    trail.push({ name: seg, path: acc });
+  }
+  return trail;
+}
+
+/** 返回上一级 */
+export async function goUp() {
+  if (BROWSE.trail.length <= 1) return;
+  const parent = BROWSE.trail[BROWSE.trail.length - 2];
+  if (parent) await navigateTo(parent.path);
+}
+
+/** 双击文件夹卡片进入；本身就是书时，单击直接打开 */
+function bindDirCard(el, d) {
+  let clickTimer = null;
+
+  el.addEventListener('click', (e) => {
+    // 本身就含图片的目录：单击 = 直接读书，双击 = 进去看文件
+    if (d.isBook) {
+      if (clickTimer) return;             // 双击的第二次点击不再处理
+      clickTimer = setTimeout(async () => {
+        clickTimer = null;
+        await openAsBook(d.path);
+      }, 240);
+      return;
+    }
+
+    // 普通文件夹：单击选中样式（视觉反馈），双击进入
+    el.classList.add('is-picked');
+    setTimeout(() => el.classList.remove('is-picked'), 180);
+  });
+
+  el.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+    navigateTo(d.path);
+  });
+}
+
+/** 把一个「目录」当书打开（用于既有图片又有子目录的混合目录） */
+async function openAsBook(dirPath) {
+  // 从全量缓存里找这本书；找不到就现场组一个
+  let book = null;
+  try {
+    const all = await DB.getAllBooks();
+    book = all.find((b) => b.id === dirPath) || null;
+  } catch (e) { /* 忽略 */ }
+
+  if (!book) {
+    // 缓存里没有（比如混合目录不算书），手工构造
+    book = {
+      id: dirPath,
+      title: dirPath.split(/[\\/]/).pop() || dirPath,
+      kind: 'folder',
+      pageCount: 0,
+      path: dirPath,
+      progress: null,
+      lastReadAt: 0,
+    };
+  }
+  if (onOpenBook) onOpenBook(book);
+}
+
+/** 浏览器式窗口标题：显示当前目录 */
+function updateWindowTitle() {
+  try {
+    if (atRoot()) {
+      window.mangaHost?.setWindowTitle?.('漫画阅读器');
+    } else {
+      const cur = BROWSE.trail[BROWSE.trail.length - 1];
+      window.mangaHost?.setWindowTitle?.(`${BROWSE.trail[0].name} / ${cur.name} — 漫画阅读器`);
+    }
+  } catch (e) { /* noop */ }
+}
+
+/** 浏览中的轻提示（只读一层很快，通常一闪而过） */
+function showBrowsing(dirPath) {
+  const stage = els().stage;
+  if (!stage) return;
+  let el = document.getElementById('lib-browsing');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'lib-browsing';
+    el.className = 'browsing-tip';
+    stage.appendChild(el);
+  }
+  el.textContent = '正在读取…';
+  el.classList.add('is-show');
+}
+
+function hideBrowsing() {
+  const el = document.getElementById('lib-browsing');
+  if (el) el.classList.remove('is-show');
+}
+
 /* ---------------- 排序菜单 ---------------- */
 
 async function showSortMenu() {
@@ -466,7 +768,8 @@ async function showSortMenu() {
   });
   if (v) {
     setSort(v);
-    renderLibrary(allBooks);
+    BROWSE.books = sortBooks(BROWSE.books || [], v);
+    renderCurrentView();
   }
 }
 
@@ -499,9 +802,14 @@ export async function chooseFolder() {
   if (!dir) return null;
 
   await DB.setSettings({ rootDir: dir });
-  const books = await rescan();
+  BROWSE.rootDir = dir;
+  BROWSE.path = '';
+  BROWSE.trail = [];
+
+  // 换目录后回到根，重新读这一层
+  await navigateTo(dir);
   toast(`已选择：${dir}`, 3000);
-  return books;
+  return BROWSE.books;
 }
 
 /* ---------------- 初始化 ---------------- */
@@ -514,6 +822,10 @@ export function initLibrary(opts = {}) {
   document.getElementById('btn-refresh').onclick = () => rescan();
   document.getElementById('btn-open-folder').onclick = () => chooseFolder();
 
+  // 返回上一级
+  const back = document.getElementById('lib-back');
+  if (back) back.onclick = () => goUp();
+
   const emptyCta = document.getElementById('btn-import-empty');
   if (emptyCta) emptyCta.onclick = () => chooseFolder();
 
@@ -523,9 +835,54 @@ export function initLibrary(opts = {}) {
     fab.onclick = () => chooseFolder();
   }
 
+  // Alt+← / Backspace：返回上一层（阅读器打开时不抢键）
+  window.addEventListener('keydown', (e) => {
+    const inReader = document.getElementById('view-reader')?.classList.contains('is-active');
+    if (inReader) return;
+
+    const inField = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+    if (inField) return;
+
+    if ((e.altKey && e.key === 'ArrowLeft') || e.key === 'Backspace') {
+      if (BROWSE.trail.length > 1) {
+        e.preventDefault();
+        goUp();
+      }
+    }
+  });
+
   return true;
+}
+
+/**
+ * 直接把一本书交给阅读器（不经过书架卡片）。
+ * 给「混合目录直接阅读」和自动化验收脚本用。
+ */
+export async function openBookDirect(book) {
+  if (!book) return false;
+  if (onOpenBook) { onOpenBook(book); return true; }
+  return false;
+}
+
+/** 进入根目录（启动时调用） */
+export async function enterRoot(rootDir) {
+  BROWSE.rootDir = rootDir || '';
+  BROWSE.path = '';
+  BROWSE.dirs = [];
+  BROWSE.books = [];
+  BROWSE.trail = [];
+  if (!BROWSE.rootDir) return;
+  await navigateTo(BROWSE.rootDir);
 }
 
 export function getBooks() {
   return allBooks;
+}
+
+export function getTrail() {
+  return BROWSE.trail.slice();
+}
+
+export function isAtRoot() {
+  return atRoot();
 }

@@ -32,6 +32,46 @@ const BROWSE = {
   loading: false,
 };
 
+/** 下一次渲染是否要把滚动条拉回顶部（换目录时为 true） */
+let scrollResetPending = false;
+
+/** 每个目录记住自己的滚动位置，进出不同层时各回各的 */
+const scrollMemo = new Map();   // dirPath -> scrollTop
+
+/** 渲染期间的静默标记：此时滚动事件不写入记忆，避免把 0 覆盖掉真实位置 */
+let scrollSilent = false;
+
+/** 当前层滚动位置变化时，随手记下来 */
+function rememberScroll() {
+  if (scrollSilent) return;
+  const stage = els().stage;
+  if (!stage || !BROWSE.path) return;
+  scrollMemo.set(BROWSE.path, stage.scrollTop);
+}
+
+/** 渲染后恢复该层上次的滚动位置 */
+function restoreScroll(dirPath) {
+  const stage = els().stage;
+  if (!stage) return;
+  const y = scrollMemo.get(dirPath) || 0;
+  if (y <= 0) return;
+
+  // 恢复期间禁掉写入，等布局稳定后连续几帧对齐，
+  // 因为封面是异步加载的，页面高度会变。
+  scrollSilent = true;
+  let tries = 0;
+  const tick = () => {
+    stage.scrollTop = y;
+    tries++;
+    if (tries < 12 && Math.abs(stage.scrollTop - y) > 2) {
+      requestAnimationFrame(tick);
+    } else {
+      scrollSilent = false;
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
 /** 当前是否在根目录 */
 function atRoot() {
   return !BROWSE.path || BROWSE.path === BROWSE.rootDir;
@@ -361,9 +401,16 @@ function renderCurrentView() {
   observeCovers();
   grid.querySelectorAll('.card:not(.card-dir) .card-cover').forEach((c) => io && io.observe(c));
 
-  // 回到顶部，换目录后从第一屏开始
+  /* 滚动位置：
+     换目录时才回到顶部；同一层重新渲染（比如从阅读器返回、
+     排序、刷新）要保留原来的位置，否则读到一半退出会跳回开头。 */
   const stage = els().stage;
-  if (stage) stage.scrollTop = 0;
+  if (stage && scrollResetPending) {
+    scrollSilent = true;          // 归零的动作不写入记忆
+    stage.scrollTop = 0;
+    scrollResetPending = false;
+    requestAnimationFrame(() => { scrollSilent = false; });
+  }
 }
 
 /* ---------------- 面包屑 ---------------- */
@@ -588,6 +635,49 @@ async function showBookMenu(book) {
   }
 }
 
+/* ---------------- 默认阅读方式 / 方向 ---------------- */
+
+/**
+ * 书架右上角「默认阅读方式」按钮。
+ * 这里设定的是「新书第一次打开时用哪种方式」；
+ * 已经有进度的书仍按它自己的进度读，不会被覆盖。
+ */
+async function showDefaultModeMenu() {
+  const s = DB.getSettings() || {};
+  const curMode = s.defaultMode || 'paged';
+  const curDir = s.defaultDirection === 'rtl' ? 'rtl' : 'ltr';
+
+  const modeLabel = {
+    paged: '单页', spread: '跨页', webtoon: '条漫', strip: '长卷',
+  };
+
+  const v = await sheet({
+    title: '默认阅读方式',
+    items: [
+      { label: '单页', value: 'mode:paged', icon: curMode === 'paged' ? 'check' : undefined },
+      { label: '跨页（双页并排）', value: 'mode:spread', icon: curMode === 'spread' ? 'check' : undefined },
+      { label: '条漫（竖排连续）', value: 'mode:webtoon', icon: curMode === 'webtoon' ? 'check' : undefined },
+      { label: '长卷（横排无间隙）', value: 'mode:strip', icon: curMode === 'strip' ? 'check' : undefined },
+      { label: '阅读方向：' + (curDir === 'rtl' ? '从右往左（日漫）' : '从左往右'), value: 'toggleDir', icon: 'reset' },
+    ],
+  });
+
+  if (!v) return;
+
+  if (v === 'toggleDir') {
+    const next = curDir === 'rtl' ? 'ltr' : 'rtl';
+    await DB.setSettings({ defaultDirection: next });
+    toast(`默认方向：${next === 'rtl' ? '从右往左' : '从左往右'}`, 1800);
+    return;
+  }
+
+  if (v.startsWith('mode:')) {
+    const mode = v.slice(5);
+    await DB.setSettings({ defaultMode: mode });
+    toast(`默认阅读方式：${modeLabel[mode] || mode}`, 1800);
+  }
+}
+
 /* ---------------- 分层导航 ---------------- */
 
 /**
@@ -612,6 +702,11 @@ export async function navigateTo(dirPath) {
   BROWSE.loading = true;
   showBrowsing(dirPath);
 
+  const prevPath = BROWSE.path;   // 记下当前层，用于判断是不是「同一层重渲染」
+
+  // 离开当前层之前，先把它的滚动位置存下来
+  if (prevPath) rememberScroll();
+
   try {
     const r = await DB.browse(dirPath);
     if (!r.ok) {
@@ -629,8 +724,19 @@ export async function navigateTo(dirPath) {
     BROWSE.trail = buildTrail(root, dirPath);
 
     hideScanning();
+
+    /* 滚动位置：
+       · 首次进入某个目录 → 从顶部开始
+       · 回到访问过的目录、或同层重新渲染（从阅读器返回、排序、刷新）
+         → 用记忆值恢复。记忆值在用户滚动时实时更新，所以不会弹回旧位置。 */
+    const hasMemory = scrollMemo.has(dirPath);
+    scrollResetPending = !hasMemory;
+
     renderCurrentView();
+    if (hasMemory) restoreScroll(dirPath);
+
     updateWindowTitle();
+
   } finally {
     BROWSE.loading = false;
     hideBrowsing();
@@ -819,6 +925,7 @@ export function initLibrary(opts = {}) {
   onOpenBook = opts.onOpen;
 
   document.getElementById('btn-sort').onclick = showSortMenu;
+  document.getElementById('btn-default-mode').onclick = showDefaultModeMenu;
   document.getElementById('btn-data-dir').onclick = () => window.mangaHost.openDataDir();
   document.getElementById('btn-refresh').onclick = () => rescan();
   document.getElementById('btn-open-folder').onclick = () => chooseFolder();
@@ -826,6 +933,14 @@ export function initLibrary(opts = {}) {
   // 返回上一级
   const back = document.getElementById('lib-back');
   if (back) back.onclick = () => goUp();
+
+  // 滚动时记下当前层的位置，供「退出阅读器返回」时恢复
+  const stageEl = document.getElementById('lib-stage');
+  if (stageEl) {
+    stageEl.addEventListener('scroll', () => {
+      rememberScroll();
+    }, { passive: true });
+  }
 
   const emptyCta = document.getElementById('btn-import-empty');
   if (emptyCta) emptyCta.onclick = () => chooseFolder();

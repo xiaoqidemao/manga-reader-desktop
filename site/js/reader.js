@@ -180,11 +180,33 @@ export function initReader(opts = {}) {
    打开 / 关闭
    ============================================================ */
 
+/** 读取「默认阅读方式 / 默认方向」设置 */
+function getDefaults() {
+  const s = (DB.getSettings && DB.getSettings()) || {};
+  const m = s.defaultMode;
+  const mode = (m === 'webtoon' || m === 'spread' || m === 'strip') ? m : 'paged';
+  const direction = s.defaultDirection === 'rtl' ? 'rtl' : 'ltr';
+  return { mode, direction };
+}
+
 export async function openBook(book) {
   S.book = book;
-  S.mode = (book.mode === 'webtoon' || book.mode === 'spread' || book.mode === 'strip')
-    ? book.mode : 'paged';
-  S.direction = book.direction === 'rtl' ? 'rtl' : 'ltr';
+
+  /* 阅读方式与方向：
+     有历史进度 → 接着上次的方式读（不打断）
+     没有历史进度（第一次打开这本）→ 用设置里的「默认阅读方式」 */
+  const hasProgress = !!book.progress;
+  const pref = getDefaults();
+
+  if (hasProgress) {
+    S.mode = (book.mode === 'webtoon' || book.mode === 'spread' || book.mode === 'strip')
+      ? book.mode : 'paged';
+    S.direction = book.direction === 'rtl' ? 'rtl' : 'ltr';
+  } else {
+    S.mode = pref.mode;
+    S.direction = pref.direction;
+  }
+
   S.coverAlone = !!book.coverAlone;
   S.page = 0;
   S.wtRatio = 0;

@@ -117,6 +117,48 @@ function getTargets() {
     return { skipped: true, checked: cands.length };
   })()`);
 
+  // 1d. 滚动位置记忆：进阅读器再返回，书架应停在原处
+  report.scroll = await ev(`(async () => {
+    const L = await import('./js/library.js');
+    const s = await window.mangaHost.getSettings();
+    const r0 = await window.mangaHost.browse(s.rootDir);
+    const first = (r0.dirs || []).find(d => d.isBook) || (r0.dirs || [])[0];
+    if (!first) return { skipped: true };
+
+    await L.navigateTo(first.path);
+    await new Promise(r => setTimeout(r, 2600));
+
+    const cards = [...document.querySelectorAll('.card:not(.card-dir)')];
+    if (!cards.length) return { skipped: true, reason: 'no books in ' + first.name };
+
+    const stage = document.getElementById('lib-stage');
+    stage.scrollTop = 600;
+    stage.dispatchEvent(new Event('scroll'));
+    await new Promise(r => setTimeout(r, 900));
+    const before = Math.round(stage.scrollTop);
+
+    const vis = cards.find(c => { const rr = c.getBoundingClientRect(); return rr.top > 100 && rr.top < 600; }) || cards[0];
+    vis.click();
+    await new Promise(r => setTimeout(r, 2500));
+    document.getElementById('rd-back').click();
+    await new Promise(r => setTimeout(r, 3000));
+
+    const after = Math.round(document.getElementById('lib-stage').scrollTop);
+    return { skipped: false, dir: first.name, before, after, kept: Math.abs(after - before) < 8 };
+  })()`);
+
+  // 1e. 默认阅读方式：设置项应存在且是合法值，按钮要在书架上
+  report.defaults = await ev(`(async () => {
+    const s = await window.mangaHost.getSettings();
+    const okModes = ['paged','spread','webtoon','strip'];
+    return {
+      mode: s.defaultMode,
+      direction: s.defaultDirection,
+      valid: okModes.includes(s.defaultMode) && ['ltr','rtl'].includes(s.defaultDirection),
+      buttonExists: !!document.getElementById('btn-default-mode')
+    };
+  })()`);
+
   // 2. 打开一本大书
   //    分层浏览下根目录上显示的是文件夹而不是书，
   //    所以这里直接调 openBookDirect，不依赖书架上有卡片。
@@ -232,6 +274,9 @@ function getTargets() {
     '自动折叠（全是书直显封面）': report.collapse &&
       (report.collapse.skipped === true ||
        (report.collapse.collapsed === true && report.collapse.books > 0)),
+    '退出阅读器不跳回顶部': report.scroll &&
+      (report.scroll.skipped === true || report.scroll.kept === true),
+    '默认阅读方式可用': report.defaults && report.defaults.valid === true && report.defaults.buttonExists === true,
     '封面懒加载': (report.coverTest && report.coverTest.coversLoaded > 0) || false,
     '能打开书': report.open.active === true,
     '单页模式': report.modes.paged.paged === true,

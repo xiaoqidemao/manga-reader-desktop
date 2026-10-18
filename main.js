@@ -162,6 +162,8 @@ const DEFAULT_SETTINGS = {
   theme: 'dark',
   wheelStep: 0.08,         // 长卷模式：滚轮一格 = 屏宽百分比
   thumbsEnabled: true,     // 缩略图带开关
+  defaultMode: 'paged',    // 默认阅读方式：paged | spread | webtoon | strip
+  defaultDirection: 'ltr', // 默认阅读方向：ltr | rtl
   progress: {},            // id -> {mode,page,unit,scroll,lastReadAt}
   renamed: {},             // id -> 自定义书名
 };

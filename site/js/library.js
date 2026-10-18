@@ -329,14 +329,15 @@ function renderCurrentView() {
   // 数量提示：文件夹和书分开说清楚
   if (count) {
     const parts = [];
-    if (dirs.length) parts.push(`${dirs.length} 个文件夹`);
     if (books.length) parts.push(`${books.length} 本`);
+    if (dirs.length) parts.push(`${dirs.length} 个文件夹`);
     count.textContent = parts.join(' · ');
   }
 
+  // 折叠后的混排：书在前、文件夹在后，符合「主要目的是看书」的直觉
   const dirHTML = dirs.map(dirCardHTML).join('');
   const bookHTML = books.map(cardHTML).join('');
-  grid.innerHTML = dirHTML + bookHTML;
+  grid.innerHTML = bookHTML + dirHTML;
 
   // 文件夹卡片：双击进入；本身就是书时，单击直接阅读
   grid.querySelectorAll('.card-dir').forEach((el) => {

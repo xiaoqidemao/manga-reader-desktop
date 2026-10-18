@@ -448,35 +448,70 @@ async function browseDir(dir) {
   dirCards.sort((a, b) => naturalCompare(a.name, b.name));
 
   /* ------------------------------------------------------------
-     自动折叠：如果这一层里所有子文件夹都是「书」（只有图片），
-     就没必要再让用户点一次进去，直接把它们当书展示。
-     例如「成田大进」下的 89 个目录全都是书 → 进来就看到封面。
+     自动折叠：这一层如果「绝大多数」子文件夹都是书，
+     就直接把它们当书展示，省掉多余的一层点击。
 
-     只要混有任何「中间层」目录（比如 qqqpppqpqpqp 里既有书
-     又有日期文件夹），就保持原样，避免层级关系看不清。
+     判定不能只看比例，要看「非书目录有几个」：
+       · 超高校级的幸运币：38 本书 + 1 个例外（97%）→ 值得折叠
+       · 龙裔小金鱼：174 本书 + 空目录 + 1 个分组（99%）→ 值得折叠
+       · qqqpppqpqpqp：94 本书 + 21 个日期分组（82%）
+         ——比例也高，但那 21 个是真实的层级结构，
+            折叠后会把「按日期分组」的组织方式打散，所以不折。
+
+     规则：
+       · 非书目录 ≤ 2 个，且书数 ≥ 3 → 折叠
+       · 折叠后，那 1~2 个例外仍以文件夹卡片混排（可继续双击进去）
+       · 本层散落的 zip/pdf 也照常显示为书
      ------------------------------------------------------------ */
-  const allDirsAreBooks = dirCards.length > 0 && dirCards.every((d) => d.isBook);
-  const collapsed = allDirsAreBooks && files.length === 0;
+  const bookDirs = dirCards.filter((d) => d.isBook);
+  const nonBookDirs = dirCards.filter((d) => !d.isBook);
+  const collapsed = bookDirs.length >= 3 && nonBookDirs.length <= 2;
+
+  /** 把「只有图片」的目录转成书籍对象 */
+  const dirAsBook = (d) => ({
+    id: d.path,
+    title: titleFor(d.path),
+    dir: d.path,
+    kind: 'folder',
+    name: d.name,
+    pageCount: d.pageCount,
+    bytes: 0,
+    cover: null,
+    mtime: 0,
+  });
 
   if (collapsed) {
-    const asBooks = dirCards.map((d) => ({
-      id: d.path,
-      title: titleFor(d.path),
-      dir: d.path,
-      kind: 'folder',
-      name: d.name,
-      pageCount: d.pageCount,
-      bytes: 0,
-      cover: null,
-      mtime: 0,
-    }));
+    const asBooks = bookDirs.map(dirAsBook);
+    // 少数例外目录仍然以文件夹形式保留，混排在后面
+    const leftoverDirs = nonBookDirs;
+
+    // 本层散落的压缩包 / PDF
+    const looseBooks = [];
+    for (const f of files) {
+      let st;
+      try { st = await fsp.stat(f.full); } catch (e) { continue; }
+      looseBooks.push({
+        id: f.full,
+        title: path.basename(f.name, f.ext),
+        dir: f.full,
+        kind: PDF_EXT.has(f.ext) ? 'pdf' : 'archive',
+        name: f.name,
+        pageCount: 0,
+        bytes: st.size,
+        cover: null,
+        mtime: st.mtimeMs,
+      });
+    }
+
     return {
       ok: true,
       dir: dir,
       entryCount,
-      dirs: [],
-      books: decorateBooks(asBooks),
+      dirs: leftoverDirs,
+      books: decorateBooks(asBooks.concat(looseBooks)),
       collapsed: true,
+      collapsedCount: asBooks.length,
+      leftoverCount: leftoverDirs.length,
     };
   }
 

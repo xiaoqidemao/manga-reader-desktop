@@ -535,7 +535,7 @@ async function browseDir(dir) {
      ------------------------------------------------------------ */
   const bookDirs = peeledCards.filter((d) => d.isBook);
   const nonBookDirs = peeledCards.filter((d) => !d.isBook);
-  const collapsed = bookDirs.length >= 3 && nonBookDirs.length <= 2;
+  const collapsed = bookDirs.length >= 2 && nonBookDirs.length <= 2;
 
   /** 把「只有图片」的目录转成书籍对象（含穿透后的） */
   const dirAsBook = (d) => {

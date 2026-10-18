@@ -555,12 +555,32 @@ async function showBookMenu(book) {
     { label: '重命名（只改显示名）', value: 'rename', icon: 'edit' },
     { label: '打开所在文件夹', value: 'reveal', icon: 'folder' },
   ];
+
+  // 多版本的书（如 26.4.06 的「嵌字」「无字」）：允许切换读哪一版
+  const versions = book.versions;
+  if (versions && versions.others && versions.others.length) {
+    const cur = versions.main;
+    const list = [{ name: cur, pages: versions.mainPages }].concat(versions.others);
+    const label = list.map((x) => `${x.name}(${x.pages}P)`).join(' / ');
+    items.push({
+      label: `切换版本：${label}`,
+      sub: '当前读：' + cur,
+      value: 'switchVersion',
+      icon: 'book',
+    });
+  }
+
   if (book.lastReadAt) {
     items.push({ label: '重置阅读进度', value: 'restart', icon: 'reset' });
   }
   items.push({ label: '标记为已读完', value: 'done', icon: 'check' });
 
   const v = await sheet({ title: book.title, items });
+
+  if (v === 'switchVersion') {
+    await switchBookVersion(book);
+    return;
+  }
 
   if (v === 'rename') {
     const name = await promptInput({ title: '重命名（只改显示名，不动磁盘）', value: book.title });
@@ -586,6 +606,52 @@ async function showBookMenu(book) {
     await reload();
     toast('已标记为读完');
   }
+}
+
+/**
+ * 多版本的书（同一部作品的多个版本目录，如「嵌字」「无字」）：
+ * 让用户选择读哪一版。选中后把这本书切换到那个子目录，
+ * 并记到设置里，下次打开仍然是这一版。
+ */
+async function switchBookVersion(book) {
+  const versions = book.versions;
+  if (!versions) return;
+
+  const list = [{ name: versions.main, pages: versions.mainPages }]
+    .concat(versions.others || []);
+
+  const pick = await sheet({
+    title: '选择版本',
+    items: list.map((x) => ({
+      label: `${x.name}（${x.pages} 页）`,
+      value: x.name,
+      icon: x.name === versions.main ? 'check' : undefined,
+    })),
+  });
+  if (!pick) return;
+
+  // 已经被「穿透」过的书，其 path 指向当前版本目录；
+  // 切换 = 把 path 换成「父目录 + 目标版本名」
+  const parent = book.path.replace(/[\\/][^\\/]+$/, '');
+  const nextPath = parent + '\\' + pick;
+  const chosen = list.find((x) => x.name === pick);
+
+  const next = Object.assign({}, book, {
+    path: nextPath,
+    id: nextPath,
+    pageCount: chosen ? chosen.pages : book.pageCount,
+    progress: null,
+    lastReadAt: 0,
+  });
+
+  // 记住选择，下次打开同一本书默认用它
+  await DB.setSettings({ versionChoice: Object.assign({}, DB.getSettings()?.versionChoice || {}, {
+    [parent]: pick,
+  }) });
+
+  toast(`已切换到「${pick}」`, 2000);
+  await reload();
+  if (onOpenBook) onOpenBook(next);
 }
 
 /* ---------------- 分层导航 ---------------- */

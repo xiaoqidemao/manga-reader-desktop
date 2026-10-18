@@ -395,6 +395,7 @@ async function browseDir(dir) {
     let isBook = false;          // 只有图片 → 本身是一本书
     let pageCount = 0;
     let onlyChild = null;        // 只包着唯一一个子目录（空壳层）
+    let versions = null;         // 多版本容器：{ main: 首版本子目录名, others: [...] }
 
     if (n > 0) {
       try {
@@ -425,6 +426,42 @@ async function browseDir(dir) {
         if (hasSubdir && imgCount === 0 && subDirs.length === 1) {
           onlyChild = subDirs[0].name;
         }
+
+        /* 多版本容器：自己没图，下面几个子目录各自都是完整的书。
+           典型如 26.4.06 下有「嵌字」「无字」两个版本，各 19 张；
+           又如「坎特蕾拉家主的“扫black”行动」下有「本片」「画风」。
+           这类同样应该直接显示封面，否则要点进一层才知道是同一部作品。
+
+           处理方式：把第一个子目录当主版本（封面和内容都用它），
+           其余版本记下来，供进入目录后选择。 */
+        if (hasSubdir && imgCount === 0 && subDirs.length >= 2 && subDirs.length <= 8) {
+          const checked = [];
+          for (const sd of subDirs) {
+            const r = await fsp.readdir(sd.name ? path.join(d.full, sd.name) : d.full, { withFileTypes: true })
+              .catch(() => null);
+            if (!r) { checked.length = 0; break; }
+
+            let dirN = 0;
+            let imgN = 0;
+            for (const e of r) {
+              if (e.name.startsWith('.')) continue;
+              if (SKIP_DIR.has(e.name)) continue;
+              if (e.isDirectory()) dirN++;
+              else if (IMG_EXT.has(path.extname(e.name).toLowerCase())) imgN++;
+            }
+            // 必须每个子目录都是「纯图片」
+            if (dirN !== 0 || imgN === 0) { checked.length = 0; break; }
+            checked.push({ name: sd.name, pages: imgN });
+          }
+
+          if (checked.length === subDirs.length && checked.length >= 2) {
+            versions = {
+              main: checked[0].name,
+              mainPages: checked[0].pages,
+              others: checked.slice(1).map((v) => ({ name: v.name, pages: v.pages })),
+            };
+          }
+        }
       } catch (e) { /* 忽略 */ }
     }
 
@@ -436,6 +473,7 @@ async function browseDir(dir) {
       isBook,
       pageCount,
       onlyChild,
+      versions,
     };
   }));
 
@@ -492,8 +530,21 @@ async function browseDir(dir) {
   const peeledCards = [];
   for (const d of dirCards) {
     if (d.isBook) { peeledCards.push(d); continue; }
-    if (!d.onlyChild) { peeledCards.push(d); continue; }
-    peeledCards.push(await peel(d));
+    if (d.onlyChild) { peeledCards.push(await peel(d)); continue; }
+    // 多版本容器：用主版本（第一个子目录）当这本书
+    if (d.versions) {
+      peeledCards.push({
+        ...d,
+        path: path.join(d.path, d.versions.main),
+        innerName: d.versions.main,
+        isBook: true,
+        pageCount: d.versions.mainPages,
+        onlyChild: null,
+        versions: d.versions,
+      });
+      continue;
+    }
+    peeledCards.push(d);
   }
 
   const books = [];
@@ -539,6 +590,23 @@ async function browseDir(dir) {
 
   /** 把「只有图片」的目录转成书籍对象（含穿透后的） */
   const dirAsBook = (d) => {
+    // 多版本容器（如 26.4.06 下的「嵌字」「无字」）：
+    // 用外层目录名当书名，并记下其他版本，供进入后切换。
+    if (d.versions) {
+      return {
+        id: d.path,
+        title: d.name,
+        dir: d.path,
+        kind: 'folder',
+        name: d.name,
+        pageCount: d.pageCount,
+        bytes: 0,
+        cover: null,
+        mtime: 0,
+        versions: d.versions,
+      };
+    }
+
     // 穿透后书名取「外层名」和「内层名」里更长的那个：
     //   「25.01.05」→「25.01.05 蛾娘航线」 内层更全，用好内层
     //   「淫堕航线15」→「birme-1248x1800」  内层是乱码目录名，用外层
@@ -704,6 +772,8 @@ function decorateBooks(rawBooks) {
     mtime: b.mtime,
     progress: settings.progress[b.id] || null,
     lastReadAt: (settings.progress[b.id] && settings.progress[b.id].lastReadAt) || 0,
+    // 多版本容器（如 26.4.06 的「嵌字」「无字」）：透传给前端，供切换版本用
+    versions: b.versions || null,
   }));
 }
 

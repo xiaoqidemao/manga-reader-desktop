@@ -260,6 +260,23 @@ const DB = {
     return lastScan;
   },
 
+  /**
+   * 读启动缓存，不扫描目录树。
+   * 返回 { ok, books, scannedAt } 或 { ok:false, reason }
+   */
+  async loadCache() {
+    ensureHost();
+    settings = await host.getSettings();
+    if (!settings.rootDir) return { ok: false, reason: 'no-root', books: [] };
+
+    const res = await host.cached(settings.rootDir);
+    if (!res || !res.ok) return { ok: false, reason: (res && res.reason) || 'no-cache', books: [] };
+
+    books = res.books || [];
+    lastScan = { ms: res.ms || 0, total: books.length, error: null };
+    return { ok: true, books, scannedAt: res.scannedAt || 0 };
+  },
+
   /* ---------------- 书籍 ---------------- */
 
   async getAllBooks() {

@@ -308,9 +308,25 @@ function renderEmptyState() {
   }
 }
 
+/** 在标题后面显示「列表来自上次扫描」的时间，让你知道数据新鲜度 */
+export function showCacheNotice(scannedAt) {
+  const el = document.getElementById('lib-cache-note');
+  if (!el) return;
+  if (!scannedAt) { el.textContent = ''; return; }
+
+  const d = new Date(scannedAt);
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = sameDay
+    ? `${pad(d.getHours())}:${pad(d.getMinutes())}`
+    : `${d.getMonth() + 1}-${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  el.textContent = `· 上次扫描 ${time}`;
+  el.title = `书架列表来自上次扫描（${d.toLocaleString('zh-CN')}）。\n磁盘上有新增或删除的漫画时，点右上角「刷新」重新扫描。`;
+}
+
 /** 扫描中的占位状态，避免首屏空书架误导用户 */
-export function showScanning(rootDir) {
-  const { grid, empty, count, stage } = els();
+export function showScanning(rootDir) {  const { grid, empty, count, stage } = els();
   if (grid) { grid.innerHTML = ''; grid.classList.add('hidden'); }
   if (empty) empty.classList.remove('is-show');
   if (count) count.textContent = '';
@@ -364,6 +380,7 @@ export async function rescan() {
     const r = await DB.scan();
     const books = r.ok ? r.books : [];
     renderLibrary(books);
+    if (r.ok) showCacheNotice(Date.now());
 
     if (r.ok) {
       toast(`扫描完成 · ${books.length} 本 · 用时 ${(r.ms / 1000).toFixed(1)} 秒`, 2600);
@@ -417,7 +434,7 @@ async function showBookMenu(book) {
     await window.mangaHost.clearProgress(book.id);
     book.progress = null;
     book.lastReadAt = 0;
-    await DB.scan();
+    // 只是清了进度，书籍列表本身没变，不用重新扫描整个目录
     await reload();
     toast('阅读进度已重置');
   } else if (v === 'done') {

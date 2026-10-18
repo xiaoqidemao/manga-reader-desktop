@@ -112,6 +112,50 @@ function settingsPath() {
   return path.join(dataDir(), 'progress.json');
 }
 
+/* ------------------------------------------------------------
+   书架缓存：books.json
+   ------------------------------------------------------------
+   启动时不再扫描目录树，直接读这份缓存渲染书架。
+   只有「点刷新」「换文件夹」「首次使用」才真正扫描并覆盖它。
+   缓存结构带版本号，格式变了会自动作废重扫。
+   ------------------------------------------------------------ */
+const CACHE_VERSION = 1;
+
+function cachePath() {
+  return path.join(dataDir(), 'books.json');
+}
+
+function readBookCache() {
+  try {
+    const raw = fs.readFileSync(cachePath(), 'utf8');
+    const obj = JSON.parse(raw);
+    if (!obj || obj.version !== CACHE_VERSION) return null;
+    if (!Array.isArray(obj.books)) return null;
+    return obj;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeBookCache(rootDir, books, scanMs) {
+  try {
+    const payload = {
+      version: CACHE_VERSION,
+      rootDir,
+      scannedAt: Date.now(),
+      scanMs: scanMs || 0,
+      books,
+    };
+    const tmp = cachePath() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(payload), 'utf8');
+    fs.renameSync(tmp, cachePath());
+    return true;
+  } catch (e) {
+    console.error('[cache] 写入失败', e);
+    return false;
+  }
+}
+
 const DEFAULT_SETTINGS = {
   rootDir: '',
   sort: 'lastRead',
@@ -322,6 +366,29 @@ async function makeFolderBook(dir, images) {
 
 let win = null;
 
+/**
+ * 把扫描出来的原始书籍补上「软件自己的数据」：
+ * 自定义书名、阅读进度、最近阅读时间。
+ * 扫描和读缓存都要过这一步，所以单独抽出来。
+ */
+function decorateBooks(rawBooks) {
+  const settings = readSettings();
+  return rawBooks.map((b) => ({
+    id: b.id,
+    title: settings.renamed[b.id] || b.title,
+    kind: b.kind,
+    pageCount: b.pageCount,
+    bytes: b.bytes,
+    // 缓存里存的是 hasCover 布尔值，原始扫描里是 cover 路径，
+    // 两种形状都要认，否则读缓存时封面标记会变成 false
+    hasCover: b.hasCover !== undefined ? b.hasCover : !!b.cover,
+    path: b.path || b.dir,
+    mtime: b.mtime,
+    progress: settings.progress[b.id] || null,
+    lastReadAt: (settings.progress[b.id] && settings.progress[b.id].lastReadAt) || 0,
+  }));
+}
+
 function setupIPC() {
   /* --- 设置 --- */
   ipcMain.handle('settings:get', () => readSettings());
@@ -351,26 +418,37 @@ function setupIPC() {
     }
     const t0 = Date.now();
     try {
-      const books = await scanRoot(root);
-      const settings = readSettings();
+      const raw = await scanRoot(root);
+      const ms = Date.now() - t0;
+      const out = decorateBooks(raw);
 
-      const out = books.map((b) => ({
-        id: b.id,
-        title: settings.renamed[b.id] || b.title,
-        kind: b.kind,
-        pageCount: b.pageCount,
-        bytes: b.bytes,
-        hasCover: !!b.cover,
-        path: b.dir,
-        mtime: b.mtime,
-        progress: settings.progress[b.id] || null,
-        lastReadAt: (settings.progress[b.id] && settings.progress[b.id].lastReadAt) || 0,
-      }));
+      // 扫描成功后更新缓存，下次启动直接用
+      writeBookCache(root, out, ms);
+      console.log(`[scan] ${out.length} 本，用时 ${ms}ms（已写入缓存）`);
 
-      return { ok: true, books: out, ms: Date.now() - t0, total: out.length };
+      return { ok: true, books: out, ms, total: out.length };
     } catch (err) {
       return { ok: false, error: String(err && err.message || err), books: [] };
     }
+  });
+
+  /* --- 读缓存（不扫描） --- */
+  ipcMain.handle('library:cached', async (e, root) => {
+    const cache = readBookCache();
+    if (!cache) return { ok: false, reason: 'no-cache', books: [] };
+    if (root && cache.rootDir && cache.rootDir !== root) {
+      return { ok: false, reason: 'root-changed', books: [] };
+    }
+
+    // 进度和重命名可能已经变了，用最新设置重新套一遍
+    const out = decorateBooks(cache.books);
+    return {
+      ok: true,
+      books: out,
+      scannedAt: cache.scannedAt,
+      ms: cache.scanMs || 0,
+      total: out.length,
+    };
   });
 
   /* --- 取一本书的完整页列表 --- */

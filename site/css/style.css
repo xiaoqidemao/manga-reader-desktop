@@ -135,6 +135,13 @@ img {
   margin-left: 8px;
 }
 
+/* 缓存时间提示：比书籍数量更淡，不抢视线 */
+.topbar .cache-note {
+  color: var(--text-faint);
+  opacity: .72;
+  cursor: default;
+}
+
 .topbar-actions {
   display: flex;
   gap: 4px;

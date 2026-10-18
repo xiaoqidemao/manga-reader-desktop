@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('mangaHost', {
   /* 目录 */
   pickFolder: () => ipcRenderer.invoke('folder:pick'),
   scan: (root) => ipcRenderer.invoke('library:scan', root),
+  cached: (root) => ipcRenderer.invoke('library:cached', root),
 
   /* 书与页 */
   getPages: (id) => ipcRenderer.invoke('book:pages', id),

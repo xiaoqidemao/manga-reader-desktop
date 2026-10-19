@@ -33,17 +33,19 @@
 }
 
 [data-theme="light"] {
-  --bg: #f4f4f6;
+  --bg: #f7f7f9;
   --bg-elev: #ffffff;
   --surface: #ffffff;
-  --surface-2: #eeeef1;
-  --border: #e0e0e5;
+  --surface-2: #eeeef2;
+  --border: #e2e2e8;
   --text: #17171a;
   --text-dim: #6b6b75;
-  --text-faint: #a0a0aa;
+  --text-faint: #9c9ca6;
   --accent: #17171a;
   --accent-fg: #ffffff;
-  --page-bg: #ffffff;
+  /* 阅读页背景用浅灰而不是纯白：大面积白色在夜间很刺眼，
+     浅灰既能和深色页面对齐对比度，也不会让白底漫画糊成一片 */
+  --page-bg: #ececef;
 }
 
 * {
@@ -821,7 +823,8 @@ img {
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  background: #000;
+  /* 跟着主题走：深色是纯黑，浅色是浅灰，避免出现一条黑带 */
+  background: var(--page-bg);
 }
 
 #stage-strip::-webkit-scrollbar {
@@ -854,7 +857,7 @@ img {
   border: 0;
   line-height: 0;
   font-size: 0;
-  background: #000;
+  background: var(--page-bg);
   overflow: hidden;
 }
 
@@ -944,7 +947,7 @@ img {
 }
 
 .thumb-item.is-current .thumb-box {
-  outline: 2px solid var(--accent, #fff);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -953,7 +956,7 @@ img {
   height: 74px;
   border-radius: 4px;
   overflow: hidden;
-  background: #1c1c20;
+  background: var(--surface-2);
   display: grid;
   place-items: center;
 }
@@ -1439,6 +1442,13 @@ img {
   text-align: center;
 }
 
+[data-theme="light"] .toast {
+  background: rgba(255, 255, 255, .97);
+  color: #17171a;
+  border-color: rgba(0, 0, 0, .08);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .14);
+}
+
 .toast.is-out {
   animation: toast-out .22s var(--ease) forwards;
 }
@@ -1701,6 +1711,54 @@ img {
   color: #f5b731;
 }
 
+/* 窗口窄时，搜索框展开后把排序键藏起来，给投喂键和搜索框腾位置 */
+@media (max-width: 720px) {
+  .lib-search.is-open~.topbar-actions #btn-sort {
+    display: none;
+  }
+}
+
+/* 投喂弹窗里的双码布局 */
+.tip-codes {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.tip-code {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.tip-code .tip-qr {
+  width: 100%;
+  max-width: 190px;
+  margin: 0;
+  border-radius: 14px;
+}
+
+.tip-code-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: .3px;
+}
+
+.tip-code .tip-qr.is-missing {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  border-style: dashed;
+}
+
 .tip-layer {
   position: fixed;
   inset: 0;
@@ -1723,7 +1781,7 @@ img {
 }
 
 .tip-card {
-  width: min(300px, 100%);
+  width: min(420px, 100%);
   max-height: 88vh;
   overflow-y: auto;
   background: var(--bg-elev);

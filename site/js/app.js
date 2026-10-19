@@ -30,7 +30,11 @@ async function main() {
     return;
   }
 
-  applyTheme(settings.theme || 'dark');
+  // 主题：优先用用户在 localStorage 里存的选择，没存过就是浅色
+  // （settings.theme 是旧版本的字段，保留兼容，但不再覆盖 localStorage）
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem('mr.theme'); } catch (e) { /* noop */ }
+  applyTheme(savedTheme || 'light');
 
   /* --- 阅读器 --- */
   initReader({

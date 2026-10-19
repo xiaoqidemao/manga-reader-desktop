@@ -71,24 +71,37 @@ function getTargets() {
   // 1b. 封面懒加载
   //     分层浏览下，书的「父目录」通常只含这一本书，
   //     进去后显示的就是 1 张书卡片。只要能读到封面图就算通过。
+  //     注意：不能用 getAllBooks() 随机挑——那来自 books.json 缓存，
+  //     用户移动/删除文件夹后缓存会过期，挑到的书可能已不在磁盘上。
   report.coverTest = await ev(`(async () => {
-    const DB = await import('./js/db.js');
     const L = await import('./js/library.js');
-    const all = await DB.DB.getAllBooks();
-    const book = all.find(b => b.kind === 'folder' && b.pageCount > 5);
-    if (!book) return { skipped: true, coversLoaded: 0 };
+    const s = await window.mangaHost.getSettings();
+    const root = s.rootDir;
 
-    // book.path 就是书目录本身，直接进去（不要再截掉一级）
-    const dir = book.path;
-    await L.navigateTo(dir);
+    // 从磁盘实时找一本「本身是书、页数 >= 5」的目录，不读缓存
+    const stack = [root];
+    let target = null;
+    for (let guard = 0; stack.length && guard < 300 && !target; guard++) {
+      const dir = stack.shift();
+      const r = await window.mangaHost.browse(dir);
+      if (!r || !r.ok) continue;
+      // 本层就是书：books 里会有 id === dir 的那一条
+      const self = (r.books || []).find(b => b.id === dir || b.path === dir);
+      if (self && (self.pageCount || 0) >= 5) { target = r; break; }
+      for (const k of (r.dirs || [])) stack.push(k.path);
+    }
+
+    if (!target) return { skipped: true, coversLoaded: 0, note: '磁盘上没找到页数>=5的书' };
+
+    await L.navigateTo(target.dir);
     await new Promise(r => setTimeout(r, 2600));
 
     return {
       skipped: false,
-      dir,
+      dir: target.dir,
+      booksInDir: (target.books || []).length,
       bookCards: document.querySelectorAll('.card:not(.card-dir)').length,
-      coversLoaded: document.querySelectorAll('.card-cover img').length,
-      crumb: document.getElementById('lib-crumbs').textContent.trim()
+      coversLoaded: document.querySelectorAll('.card-cover img').length
     };
   })()`);
 

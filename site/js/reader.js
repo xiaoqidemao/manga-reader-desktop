@@ -1531,7 +1531,8 @@ function toggleDirection() {
 }
 
 export function applyTheme(theme) {
-  const t = theme || (() => { try { return localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) { return 'dark'; } })();
+  // 默认浅色，与 theme-boot.js 保持一致
+  const t = theme || (() => { try { return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light'; } catch (e) { return 'light'; } })();
   document.documentElement.dataset.theme = t;
   syncThemeColor(t);
   return t;
@@ -1548,7 +1549,7 @@ export function applyTheme(theme) {
  *   ⚠️ iOS 只在「添加到主屏幕」时读一次，运行时改无效，所以这里不碰它，
  *   固定用 index.html 里静态的 default，避免浅色模式下出现黑框。
  */
-const THEME_COLORS = { dark: '#0b0b0d', light: '#f4f4f6' };
+const THEME_COLORS = { dark: '#0b0b0d', light: '#f7f7f9' };
 
 function syncThemeColor(t) {
   const isLight = t === 'light';
@@ -1561,7 +1562,8 @@ function syncThemeColor(t) {
 }
 
 function toggleTheme() {
-  const cur = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  // 初始可能是浅色（默认值），cur 判断也要按「不是 dark 就是 light」来
+  const cur = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
   const next = cur === 'light' ? 'dark' : 'light';
   document.documentElement.dataset.theme = next;
   syncThemeColor(next);

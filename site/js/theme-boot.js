@@ -8,13 +8,14 @@
 
 (function () {
   try {
-    var t = localStorage.getItem('mr.theme') === 'light' ? 'light' : 'dark';
+    // 默认浅色：没存过选择时用 light，用户手动切过深色会被记住
+    var t = localStorage.getItem('mr.theme') === 'dark' ? 'dark' : 'light';
     var el = document.documentElement;
     el.dataset.theme = t;
     var isLight = t === 'light';
 
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', isLight ? '#f4f4f6' : '#0b0b0d');
+    if (meta) meta.setAttribute('content', isLight ? '#f7f7f9' : '#0b0b0d');
 
     var cs = document.querySelector('meta[name="color-scheme"]');
     if (cs) cs.setAttribute('content', isLight ? 'light dark' : 'dark light');

@@ -877,6 +877,69 @@ function bindSearch() {
   }
 }
 
+/* ---------------- 投喂 ---------------- */
+
+/**
+ * 投喂弹窗：微信 + 支付宝两张收款码并排。
+ * 图片放在 site/icons/ 下，缺少图片时显示虚线占位，不会报错。
+ */
+function showTipLayer() {
+  const html = `
+    <div class="tip-layer" id="tip-layer">
+      <div class="tip-card">
+        <div class="tip-title">投喂一下</div>
+        <div class="tip-codes">
+          <div class="tip-code">
+            <div class="tip-qr"><img src="icons/tip-wechat.jpg" alt="微信收款码"></div>
+            <div class="tip-code-label">微信</div>
+          </div>
+          <div class="tip-code">
+            <div class="tip-qr"><img src="icons/tip-alipay.jpg" alt="支付宝收款码"></div>
+            <div class="tip-code-label">支付宝</div>
+          </div>
+        </div>
+        <div class="tip-hint">用对应 App 扫一扫</div>
+        <button class="tip-close" id="tip-close">关闭</button>
+      </div>
+    </div>`;
+
+  // 已有就复用，避免重复插入
+  let layer = document.getElementById('tip-layer');
+  if (!layer) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    layer = wrap.firstElementChild;
+    document.body.appendChild(layer);
+
+    // 图片加载失败时降级成占位块
+    // 注意：图片可能在 JS 绑定前就已失败（cached 的 404），
+    // 所以绑定后再主动检查一次 complete && naturalWidth === 0
+    layer.querySelectorAll('.tip-qr img').forEach((img) => {
+      const degrade = () => {
+        const box = img.parentElement;
+        if (!box || box.classList.contains('is-missing')) return;
+        box.classList.add('is-missing');
+        box.textContent = '未找到 ' + img.getAttribute('src');
+      };
+      img.addEventListener('error', degrade);
+      if (img.complete && img.naturalWidth === 0) degrade();
+    });
+
+    layer.addEventListener('click', (e) => {
+      // 点遮罩或关闭键都能关，点卡片本身不关
+      if (e.target === layer || e.target.id === 'tip-close') closeTipLayer();
+    });
+  }
+
+  requestAnimationFrame(() => layer.classList.add('is-show'));
+}
+
+function closeTipLayer() {
+  const layer = document.getElementById('tip-layer');
+  if (!layer) return;
+  layer.classList.remove('is-show');
+}
+
 /* ---------------- 默认阅读方式 / 方向 ---------------- */
 
 /**
@@ -1177,6 +1240,10 @@ export function initLibrary(opts = {}) {
   document.getElementById('btn-refresh').onclick = () => rescan();
   document.getElementById('btn-open-folder').onclick = () => chooseFolder();
 
+  // 投喂
+  const btnTip = document.getElementById('btn-tip');
+  if (btnTip) btnTip.onclick = () => showTipLayer();
+
   // 返回上一级
   const back = document.getElementById('lib-back');
   if (back) back.onclick = () => goUp();
@@ -1209,6 +1276,16 @@ export function initLibrary(opts = {}) {
     }
 
     if (inField) return;
+
+    // 投喂弹窗打开时，Esc 只关弹窗，不触发返回上一层
+    const tip = document.getElementById('tip-layer');
+    if (tip && tip.classList.contains('is-show')) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeTipLayer();
+      }
+      return;
+    }
 
     if ((e.altKey && e.key === 'ArrowLeft') || e.key === 'Backspace') {
       if (BROWSE.trail.length > 1) {
@@ -1252,4 +1329,19 @@ export function getTrail() {
 
 export function isAtRoot() {
   return atRoot();
+}
+
+/** 调试用：当前浏览状态快照（验收脚本与排查问题时会用到） */
+export function debugState() {
+  return {
+    path: BROWSE.path,
+    rootDir: BROWSE.rootDir,
+    loading: BROWSE.loading,
+    dirs: (BROWSE.dirs || []).length,
+    books: (BROWSE.books || []).length,
+    trail: (BROWSE.trail || []).length,
+    scrollResetPending,
+    scrollSilent,
+    hasIO: !!io,
+  };
 }

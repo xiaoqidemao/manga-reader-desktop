@@ -29,3 +29,8 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# 本地备份文件（可能含未脱敏的旧内容，绝不入库）
+*.bak-*
+package.json.before-*
+package.json.corrupt-*
